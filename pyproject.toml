@@ -4,7 +4,14 @@ version = "0.1.0"
 description = "Deterministic, review-first exact text editing."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["cli", "text-editing", "deterministic", "developer-tools", "coding-agents"]
 dependencies = []
+
+[project.urls]
+Repository = "https://github.com/YodaSnake/ep-edit"
+Issues = "https://github.com/YodaSnake/ep-edit/issues"
 
 [project.scripts]
 ep-edit = "ep_edit.cli:main"

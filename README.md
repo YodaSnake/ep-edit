@@ -42,6 +42,35 @@ The current runtime implementation uses the Python standard library.
 
 The optional `--clipboard` input provider uses macOS `pbpaste`.
 
+## Installation
+
+`ep-edit` currently supports Python 3.12.
+
+Once this repository is public, install directly from GitHub with standard
+Python packaging tools.
+
+Using `pip`:
+
+```bash
+python3.12 -m pip install "git+https://github.com/YodaSnake/ep-edit.git"
+```
+
+Using `uv` as an isolated command-line tool:
+
+```bash
+uv tool install "git+https://github.com/YodaSnake/ep-edit.git"
+```
+
+Then verify the installed command:
+
+```bash
+ep-edit --help
+```
+
+No Git installation is required at runtime after the package has been
+installed. Git is only needed when installing directly from the Git
+repository.
+
 ## Commands
 
 The CLI surface is:
@@ -257,5 +286,6 @@ Specification reference rather than inferred from similarity diagnostics.
 - `AGENTS.md`
   - default operating contract for coding agents.
 
-Packaging and installation metadata are finalized as part of standalone
-repository extraction.
+## License
+
+`ep-edit` is released under the MIT License. See `LICENSE`.
