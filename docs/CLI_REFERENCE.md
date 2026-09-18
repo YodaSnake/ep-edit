@@ -82,7 +82,7 @@ A Preview includes plan and target information such as:
 - root display;
 - target path;
 - operation;
-- EditRef or edit identities;
+- EditRef identities;
 - before and after SHA-256 prefixes;
 - changed-line counts;
 - representation information where relevant;
@@ -171,9 +171,9 @@ Exactly one effective input source is required.
 
 Example:
 
-    ep-edit check --root . .ep-work/my-edit-v1/edit-spec.txt
-    ep-edit preview --root . .ep-work/my-edit-v1/edit-spec.txt
-    ep-edit apply --root . .ep-work/my-edit-v1/edit-spec.txt
+    ep-edit check --root . .ep-work/my-edit-attempt-01/edit-spec.txt
+    ep-edit preview --root . .ep-work/my-edit-attempt-01/edit-spec.txt
+    ep-edit apply --root . .ep-work/my-edit-attempt-01/edit-spec.txt
 
 A saved-file workflow is recommended for review-sensitive browser-assisted
 authoring because the same bytes can be reused through CHECK, PREVIEW, and
@@ -352,7 +352,7 @@ It then reports identity information:
     Added edits: ...
     Specification fingerprint: ...
 
-For v2 revisions that replace semantic edit identity, output also includes:
+For revisions that replace semantic edit identity, output also includes:
 
     Revised EditRefs: old_ref -> new_ref
 
@@ -479,7 +479,7 @@ If CHECK fails or Preview is rejected:
 
     preserve current workspace
         ->
-    create fresh versioned workspace
+    create fresh attempt workspace
         ->
     correct or recompose Specification
         ->

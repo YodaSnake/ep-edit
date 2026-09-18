@@ -62,7 +62,7 @@ captured next.
 For a Specification that comfortably fits in one ChatGPT code block, a
 controller can use this form:
 
-    WORK=".ep-work/my-edit-v1"
+    WORK=".ep-work/my-edit-attempt-01"
     SPEC="$WORK/edit-spec.txt"
     rc=0
 
@@ -172,7 +172,7 @@ Specification.
 
 For example:
 
-    SPEC=".ep-work/my-edit-v1/edit-spec.txt"
+    SPEC=".ep-work/my-edit-attempt-01/edit-spec.txt"
     rc=0
 
     ep-edit apply --root . "$SPEC" || rc=$?
@@ -242,7 +242,7 @@ Only the completed concatenated `edit-spec.txt` is submitted to `ep-edit`.
 
 A three-part controller can use this shape:
 
-    WORK=".ep-work/my-large-edit-v1"
+    WORK=".ep-work/my-large-edit-attempt-01"
     PART1="$WORK/part-01.txt"
     PART2="$WORK/part-02.txt"
     PART3="$WORK/part-03.txt"
@@ -305,7 +305,7 @@ Clipboard capture.
 
 Example with three payload chunks:
 
-    WORK=".ep-work/my-large-edit-v1"
+    WORK=".ep-work/my-large-edit-attempt-01"
     PART1="$WORK/part-01.txt"
     PART2="$WORK/part-02.txt"
     PART3="$WORK/part-03.txt"
@@ -419,7 +419,7 @@ Before the completed file reaches `ep-edit`, inspect at least:
 - SHA-256 identity of the completed Specification;
 - the beginning of the completed file;
 - the end of the completed file;
-- the expected Specification version header.
+- the expected initial `FILE:` declaration.
 
 These checks are especially valuable when a browser UI may truncate a long
 code block.
@@ -438,7 +438,7 @@ individual chunks and do not return to the live Clipboard.
 
 Use the already reviewed completed file:
 
-    SPEC=".ep-work/my-large-edit-v1/edit-spec.txt"
+    SPEC=".ep-work/my-large-edit-attempt-01/edit-spec.txt"
     rc=0
 
     ep-edit apply --root . "$SPEC" || rc=$?
@@ -474,7 +474,7 @@ Prefer boundaries between complete lines or sections.
 Do not intentionally split:
 
 - a structural delimiter token;
-- a version declaration;
+- a `FILE:` declaration;
 - a target path;
 - a representation directive;
 - another syntax element whose bytes must remain contiguous.
@@ -581,7 +581,7 @@ review artifacts in an explicit workspace.
 
 A common layout is:
 
-    .ep-work/my-edit-v1/
+    .ep-work/my-edit-attempt-01/
         part-01.txt
         part-02.txt
         part-03.txt
@@ -607,11 +607,11 @@ Only the completed Specification is submitted to `ep-edit check`,
 ### Fresh workspaces after failed or rejected authoring
 
 When an authoring attempt fails or its Preview is rejected, prefer a fresh
-versioned workspace.
+attempt workspace.
 
 The normal lifecycle is:
 
-    create v1 workspace
+    create attempt-01 workspace
         ->
     capture payload or chunks
         ->
@@ -627,9 +627,9 @@ The normal lifecycle is:
         |
         +-- failed or rejected
               ->
-            preserve v1
+            preserve attempt-01
               ->
-            create v2 workspace
+            create attempt-02 workspace
               ->
             corrected composition
               ->
@@ -653,14 +653,14 @@ chunk bytes themselves are known to be correct.
 For example, if only the composition boundary was wrong, the preserved part
 files may be copied into a fresh workspace and recomposed there:
 
-    v1/part-01.txt
-    v1/part-02.txt
+    attempt-01/part-01.txt
+    attempt-01/part-02.txt
         ->
-    preserve v1
+    preserve attempt-01
         ->
-    copy known-good parts into v2
+    copy known-good parts into attempt-02
         ->
-    compose v2/edit-spec.txt
+    compose attempt-02/edit-spec.txt
         ->
     verify bytes, hashes, and boundaries
         ->
@@ -673,10 +673,10 @@ review cycle even when most transport chunks were reused.
 
 For example:
 
-    .ep-work/my-edit-v1/
+    .ep-work/my-edit-attempt-01/
         failed Specification
 
-    .ep-work/my-edit-v2/
+    .ep-work/my-edit-attempt-02/
         corrected Specification
 
 Do not silently overwrite evidence from the failed attempt while diagnosing

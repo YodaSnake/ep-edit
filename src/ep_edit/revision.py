@@ -403,7 +403,7 @@ def revise_edit_specification(
             (
                 "base Edit Specification "
                 "block identity scan disagrees "
-                "with parsed EDIT identities"
+                "with parsed EditRef identities"
             ),
         )
 
@@ -425,7 +425,7 @@ def revise_edit_specification(
                 "REVISION_EDIT_NOT_FOUND",
                 (
                     "base Edit Specification "
-                    "does not contain EDIT id "
+                    "does not contain EditRef "
                     f"{operation.edit_id!r}"
                 ),
             )
@@ -439,7 +439,7 @@ def revise_edit_specification(
                 "REVISION_EDIT_ALREADY_EXISTS",
                 (
                     "base Edit Specification "
-                    "already contains EDIT id "
+                    "already contains EditRef "
                     f"{operation.edit_id!r}"
                 ),
             )

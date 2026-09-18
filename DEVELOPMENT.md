@@ -241,7 +241,7 @@ workflow where practical:
     broader relevant regression
 
 If CHECK fails or Preview is rejected, preserve the failed authoring
-workspace and use a fresh versioned workspace for the corrected attempt.
+workspace and use a fresh attempt workspace for the corrected attempt.
 
 See `docs/CHATGPT_COPY_PASTE_WORKFLOW.md` for the detailed workspace
 lifecycle.
