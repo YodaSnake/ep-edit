@@ -279,6 +279,14 @@ Specification reference rather than inferred from similarity diagnostics.
 - `AGENTS.md`
   - default operating contract for coding agents.
 
+## Inspiration
+
+`ep-edit` was inspired in part by Aider's SEARCH/REPLACE edit-block format.
+
+`ep-edit` is an independent implementation with its own deterministic
+planning, validation, stale-state checks, publication, and rollback behavior.
+It does not depend on Aider.
+
 ## License
 
 `ep-edit` is released under the MIT License. See `LICENSE`.
