@@ -1,0 +1,23 @@
+[project]
+name = "ep-edit"
+version = "0.1.0"
+description = "Deterministic, review-first exact text editing."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.scripts]
+ep-edit = "ep_edit.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+minversion = "9.1"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+xfail_strict = true
+markers = [
+    "unit: isolated unit tests",
+]

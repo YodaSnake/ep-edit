@@ -1,0 +1,2876 @@
+EP Deterministic Copy-Paste Edit CLI Design
+（ChatGPTコピペ開発向け 決定論的ファイル編集CLI設計）
+Version: 0.1
+Design Revision: 5
+Date: 2026-09-08
+Status: WORKING DESIGN BASELINE — FIFTH-PASS MINIMAL-SURFACE / DOGFOOD POLICY REBASELINED
+Authority: Repository外の設計検討資料。EP_SystemのFormal / Current Authorityではない。
+
+======================================================================
+0. 文書の目的
+======================================================================
+
+本書は、ChatGPTから編集内容をCopy & Pasteし、Terminal経由でファイルを編集する
+開発・保守Workflowに対して、既存Safe Authoring CLIより大幅に簡単でありながら、
+誤編集を抑制し、PreviewによるHuman + AI Reviewを維持できる編集CLIを設計する。
+
+本CLIの中心目的は、
+
+    「変更内容のAuthoringを簡単にすること」
+    +
+    「指定された変更を、指定された場所だけへ決定論的に反映すること」
+    +
+    「Apply前にActual Previewを確認できること」
+
+である。
+
+本CLIは、既存Safe Authoringが担う全ての高保証機能を再実装することを目的としない。
+
+主対象:
+
+    - ChatGPTブラウザ / AppからのCopy & Paste開発
+    - Source Code
+    - Test
+    - Configuration
+    - Documentation
+    - Ontology / Text-based data
+    - Git Repository内のファイル
+    - Gitを使用していない通常Directory内のファイル
+
+GitはOptional Integrationとし、CLIそのものの必須条件としない。
+
+また、通常編集用のSimple CLI部分は、EP_System内でDogfoodした後も
+EP_System固有実装へ結合させず、将来publicまたはprivateの別Repositoryへ
+ほぼそのまま切り出して利用できることをArchitecture Goalとする。
+
+EP_SystemはSimple CLIの実装ownerではなく、必要に応じてそのGeneric packageを
+利用するConsumer / Integration Hostとして扱える構造を維持する。
+
+
+======================================================================
+1. 背景
+======================================================================
+
+EP_Systemの既存Safe Authoringは、Repository mutationをFail-closedで扱うために
+非常に強い安全機構を持つ。
+
+一方、U8-Cの実運用では、Repository mutation自体の誤適用よりも、
+Safe Authoring用の入力・Manifest・Locator・Payload等を正しく作成するための
+Authoring Complexityが新しいFailure Sourceになった。
+
+実際に確認された失敗例:
+
+    - replace_exactに対するinvalid derive_from_edit
+    - 存在しないmatch_lines_file field
+    - match_file Final-LF mismatch
+    - 手入力で再現したbefore-stateがCurrent Repository bytesと不一致
+    - malformed handwritten unified diff
+    - regex locatorのunescaped parenthesis
+    - 短いtext locatorのnon-unique match
+    - git grepがuntracked fileを見落とす
+    - working-tree entry countが既存untracked file内のbyte driftを検出できない
+
+これらの多くは、Repository mutation安全性の不足ではなく、
+
+    「編集を表現するための低レベル形式をHuman / ChatGPTが扱いすぎている」
+
+ことから発生した。
+
+したがって新CLIでは、
+
+    Human / ChatGPT
+        = 意味のある変更内容をAuthorする
+
+    CLI
+        = Current bytesの取得、Match、SHA、改行、Preview、Applyを管理する
+
+という責務分離を採用する。
+
+
+======================================================================
+2. 設計目標
+======================================================================
+
+2.1 Primary Goals
+
+G1.
+通常編集では、Human / ChatGPTがManifest、SHA-256、Locator DSL、
+Postcondition DSL、Canonical BundleをAuthorしない。
+
+G2.
+複数File / 複数Editを1つの入力で扱える。
+
+G3.
+Partial Editはexact unique matchのみを許可する。
+
+G4.
+0 matchまたはmultiple matchではFail-closedする。
+
+G5.
+Fuzzy match、自動Occurrence選択、類似候補の自動採用を行わない。
+
+G6.
+全対象をApply前にPlanし、Actual Unified Diff Previewを表示する。
+
+G7.
+Apply直前にTarget byte identityを再検証し、Preview後のdriftを拒否する。
+
+G8.
+LF / CRLF / Final-Newline等のFile Representation Detailを
+可能な限りCLI側で扱い、ChatGPT側のAuthoring責務にしない。
+
+G9.
+Gitなしで利用できる。
+
+G10.
+Git Repository内ではGitをOptional Diagnostics / Reviewとして利用できる。
+
+G11.
+既存Safe AuthoringのHigh-Assurance backendを将来必要に応じて再利用できるよう、
+内部Mutation PlanをFrontendから分離する。
+
+G12.
+通常利用で反映用Manifest / Payload Fileを複数作成しない。
+
+
+2.2 Non-Goals
+
+N1.
+Semantic correctnessをCLIだけで証明しない。
+
+N2.
+Formal Design整合性をCLIだけで証明しない。
+
+N3.
+Git commit / stagingを自動実行しない。
+
+N4.
+Binary file editingをv0.1の必須対象としない。
+
+N5.
+Power loss / kill -9を含むMulti-file Global Atomicityをv0.1で保証しない。
+
+N6.
+Fuzzy Repairを行わない。
+
+N7.
+LLMによる自動修正retry loopを持たない。
+
+N8.
+任意Shell CommandをEdit Specificationから実行しない。
+
+N9.
+Directory作成 / rename / moveをv0.1 Edit Specificationの必須Operationとしない。
+
+
+======================================================================
+3. 中心設計原則
+======================================================================
+
+3.1 Simple Authoring, Deterministic Application
+
+Human / ChatGPTがAuthorするもの:
+
+    FILE
+    SEARCH
+    REPLACE
+
+または、
+
+    FILE
+    MODE
+    CONTENT
+
+程度に限定する。
+
+CLI内部で自動生成するもの:
+
+    exact Current File Snapshot
+    before SHA-256
+    after bytes
+    after SHA-256
+    match count
+    changed ranges
+    Preview
+    stale-state identity
+    temporary publication state
+
+
+3.2 Current File Is Before-State Authority
+
+SEARCH対象のBefore-Stateは、Edit Specificationに再入力された巨大な
+Repository blockではなく、CLIが実際にCurrent Targetから読み取った内容を正とする。
+
+Edit SpecificationのSEARCH blockは「選択条件」であり、
+File全体のSource of Truthではない。
+
+
+3.3 Exact Unique Match
+
+Partial Editでは、
+
+    exact_match_count == 1
+
+のみ成功とする。
+
+    0
+        -> SEARCH_ZERO_MATCH
+
+    2以上
+        -> SEARCH_MULTIPLE_MATCH
+
+とする。
+
+
+3.4 No Fuzzy Application
+
+以下はApply authorityとして使用しない。
+
+    whitespace-equivalent matching
+    indentation normalization matching
+    edit distance
+    nearest text
+    regex guess
+    line-number guess
+    automatic offset relocation
+    project-wide occurrence guessing
+
+Diagnosticsとして類似候補を提示することは可能だが、
+自動Applyには利用しない。
+
+
+3.5 Preview First
+
+通常Applyは必ず、
+
+    Parse
+        ->
+    Plan
+        ->
+    Validate
+        ->
+    Preview
+        ->
+    Explicit y / yes
+        ->
+    Revalidate Current Bytes
+        ->
+    Apply
+
+とする。
+
+
+======================================================================
+4. High-Level Architecture
+======================================================================
+
+Human / ChatGPT
+    |
+    v
+Simple Edit Specification
+    |
+    v
+Input Parser
+    |
+    v
+Text / File Snapshot Loader
+    |
+    v
+Exact Edit Planner
+    |
+    v
+Normalized Mutation Plan
+    |
+    +-------------------------+
+    |                         |
+    v                         v
+Preview Renderer        Optional Validators
+    |                         |
+    +------------+------------+
+                 |
+                 v
+          Explicit Approval
+                 |
+                 v
+       Lightweight Publisher
+                 |
+                 v
+         Post-Apply Verify
+                 |
+                 v
+      Optional Git Diagnostics
+
+
+将来:
+
+Normalized Mutation Plan
+    |
+    +-> Lightweight Publisher
+    |
+    +-> Optional High-Assurance Safe Authoring Adapter
+
+Human / ChatGPT向けFrontendは共通のSimple Edit Specificationを維持する。
+
+
+4.1 Standalone Package / Extraction Boundary
+
+Simple CLIのGeneric implementationは、EP_System Repository内で開発する場合も
+独立packageとして配置する。
+
+Initial package boundary:
+
+    src/ep_edit/
+        __init__.py
+        errors.py
+        specification.py
+        snapshot.py
+        revision.py
+        planner.py
+        preview.py
+        validators.py
+        publisher.py
+        cli.py
+
+実装が分割される順序やexact file listはImplementationで変化し得るが、
+package dependency boundaryは以下をInvariantとする。
+
+    ep_system -> ep_edit
+        allowed when EP_System consumes the Generic editor
+
+    ep_edit -> ep_system
+        prohibited
+
+Simple CLI coreは以下を必須前提としてはならない。
+
+    Git Repository
+    .ep-work directory
+    EP Formal Change Set
+    Ontology semantics
+    Semantic Unit / U8 types
+    Safe Authoring Manifest / Session / Canonical Bundle
+    EP_System-specific fixtures
+
+CLI entrypoint candidate:
+
+    ep-edit = "ep_edit.cli:main"
+
+ただしconsole entrypointはMinimum Functional CLIが成立するE6付近で追加し、
+E1-E5のCore implementationをCLI registrationへ不必要に結合しない。
+
+将来のExtraction targetは概念的に以下とする。
+
+    ep-edit repository
+        src/ep_edit/
+        tests/
+        pyproject.toml
+        README.md
+
+成熟時にEP_Systemから切り出す際は、
+
+    "EP_System固有依存を除去する大規模Refactor"
+
+ではなく、
+
+    "既に独立しているep_edit packageを別Repositoryへ移す"
+
+に近い作業であることをAcceptance Goalとする。
+
+
+4.2 Three Frontend Relationship
+
+本設計では、将来の編集系統を3 Frontendとして区別する。
+
+Frontend A — Simple Edit CLI
+
+    Human / ChatGPT / Coding Agent向け
+    SEARCH / REPLACE + Whole-file operations
+    Generic / Standalone
+    Git非依存
+    Lightweight PublisherをDefault backendとする
+    将来の別Repository切り出し対象
+
+Frontend B — U8 Programmatic Mutation
+
+    EP_System内部のProgrammatic exact mutation input
+    target / exact before bytes / exact after bytes等を直接扱う
+    EP-specific
+    U8 Formal authorityに従う
+
+Frontend C — High-Assurance Safe Authoring
+
+    durable session / journal / recovery / stronger audit等が必要な用途
+    EP-specific high-assurance path
+    Existing Safe Authoring / Common Apply Engineとの接続候補
+
+Frontend AをBまたはCのAuthoring grammarへ従属させない。
+Frontend B / CをSimple SEARCH / REPLACEへ逆変換することも要求しない。
+
+ただし、Planner後のFile-level mutation vocabularyは可能な限り揃える。
+
+    target
+    operation
+    before exists / bytes / SHA-256
+    after exists / bytes / SHA-256
+
+これによりFrontendは分離したまま、Preview / Publisher / Adapter等の
+後段boundaryを必要に応じて共有できる。
+
+
+======================================================================
+5. Primary Input Format — SEARCH / REPLACE
+======================================================================
+
+5.1 Basic Example
+
+Optional header:
+
+EDIT_SPEC_VERSION: 1
+
+Header省略時はVersion 1として解釈する。
+Unknown explicit versionはFail-closedする。
+
+FILE: src/a.py
+EDIT: update-a-call
+
+<<<<<<< SEARCH
+old_a()
+=======
+new_a()
+>>>>>>> REPLACE
+
+FILE: src/b.py
+EDIT: update-b-call
+
+<<<<<<< SEARCH
+old_b()
+=======
+new_b()
+>>>>>>> REPLACE
+
+
+5.2 Multiple Edits in One File
+
+FILE: src/a.py
+EDIT: first
+
+<<<<<<< SEARCH
+def first():
+    return old_value
+=======
+def first():
+    return new_value
+>>>>>>> REPLACE
+
+FILE: src/a.py
+EDIT: second
+
+<<<<<<< SEARCH
+def second():
+    old_call()
+=======
+def second():
+    new_call()
+>>>>>>> REPLACE
+
+
+5.3 Exact Line Semantics
+
+SEARCH / REPLACE bodyはLogical Line Sequenceとして解釈する。
+
+各Line内の以下はexact semanticsを持つ。
+
+    indentation
+    spaces
+    tabs
+    comments
+    quotes
+    punctuation
+    blank line
+
+一方、Edit SpecificationをClipboard / Fileで輸送するときの
+「block末尾にFinal LFがあるか」はSEARCH semantic identityに含めない。
+
+これにより、
+
+    payloadにFinal LFがない
+
+というTransport DetailがSEARCH mismatchの原因になることを避ける。
+
+
+5.4 Match Boundary
+
+Default SEARCHはLogical Line Boundaryでmatchする。
+
+Mid-line substring replacementをDefaultにしない。
+
+理由:
+
+    - selection ambiguityを下げる
+    - whitespace / comment preservationを明確化する
+    - line-based Copy & Pasteと相性がよい
+
+一行内の一部だけ変更したい場合も、原則としてその行全体、
+または十分な周辺ContextをSEARCHへ含める。
+
+SEARCH Range外のComment / Docstring / Blank Line等はbyte-for-byte保持する。
+SEARCH Range内のCommentをREPLACEから落とすことは明示的な変更としてPreviewへ現れる。
+CLIは意味的に必要なCommentを自動復元しないため、Human + AI Reviewで確認する。
+
+
+5.5 Original Snapshot Matching
+
+同じFileに複数Editがある場合、全SEARCHは同一Original Snapshotに対して解決する。
+
+Edit 1のREPLACE結果をEdit 2のSEARCH対象としてはならない。
+
+理由:
+
+    - Edit order dependencyをなくす
+    - Preview前に全Editを独立検証できる
+    - Partial Applyを避ける
+    - stale-state identityを単純化する
+
+後続Editが先行Editの生成内容へ依存する場合は、
+1つの大きなSEARCH / REPLACEへ統合する。
+
+
+5.6 Overlap
+
+同一Fileで二つのEdit Rangeが重複する場合:
+
+    EDIT_OVERLAP
+
+としてFail-closedする。
+
+隣接は許容する。
+
+
+5.7 Edit Specification Transport
+
+Edit Specification自身はUTF-8 textとして受け取る。
+
+Spec transport上のLF / CRLFはParserが内部LFへ正規化してよい。
+この正規化はTarget Fileのnewline semanticsとは完全に分離する。
+
+Clipboard末尾にLFがあるかどうかは、SEARCH / REPLACE bodyの
+semantic contentを変えない。
+
+Human / ChatGPTはTarget File用のFinal-LFをSpec transportで表現する必要がない。
+
+
+5.8 Delimiter Collision
+
+Default marker:
+
+    <<<<<<< SEARCH
+    =======
+    >>>>>>> REPLACE
+
+は単独LineとしてのみDelimiterと認識する。
+
+Target content自体にDelimiterと完全一致するLineが必要なRare Caseでは、
+Optional FENCE_IDを使用できる。
+
+Example:
+
+    FILE: src/example.txt
+    EDIT: marker-edit
+    FENCE_ID: X91
+
+    <<<<<<< SEARCH X91
+    >>>>>>> REPLACE
+    =======
+    replacement
+    >>>>>>> REPLACE X91
+
+SEARCH opening / REPLACE closing markerは同じFENCE_IDを要求する。
+
+FENCE_IDなしでDelimiter collisionを安全に表現できない場合は
+DELIMITER_COLLISIONとしてFailし、推測してparseしない。
+
+
+5.9 Edit ID
+
+EDITは通常のHuman / ChatGPT authoringでは必須とする。
+
+同一Edit Specification内でEDIT IDは一意でなければならない。
+
+例:
+
+    EDIT: update-a-call
+
+EDIT IDはTarget mutation semanticsそのものではないが、
+以下の安定Identityとして利用する。
+
+    - Preview / error diagnostics
+    - Human + AI reviewでの参照
+    - Draft Specification Revision
+    - 「このEditはそのまま、このEditだけ修正」という会話上の参照
+
+Machine-generated input等でEDITを省略可能にする拡張は将来検討できるが、
+v0.1 Human-facing grammarでは省略不可とする。
+
+理由:
+
+    Review後に1個のEditだけ修正するとき、
+    全SpecificationをChatGPTが再出力する必要をなくすためである。
+
+
+======================================================================
+6. Whole-File Operations
+======================================================================
+
+6.1 CREATE
+
+FILE: src/new_module.py
+MODE: CREATE
+NEWLINE: LF
+FINAL_NEWLINE: YES
+BOM: NO
+
+<<<<<<< CONTENT
+def hello():
+    return "hello"
+>>>>>>> CONTENT
+
+Rules:
+
+    Targetは存在してはならない。
+    Parent Directoryは存在することをDefaultとする。
+    Parent Directory自動作成はv0.1では行わない。
+    Default NEWLINEはLF。
+    Default FINAL_NEWLINEはYES。
+    Default BOMはNO。
+
+
+6.2 REPLACE_FILE
+
+FILE: config/example.toml
+MODE: REPLACE_FILE
+NEWLINE: PRESERVE
+FINAL_NEWLINE: PRESERVE
+BOM: PRESERVE
+
+<<<<<<< CONTENT
+...
+>>>>>>> CONTENT
+
+Rules:
+
+    Targetは既存Regular Fileであること。
+    Current File before SHAを自動取得する。
+    Default NEWLINEはPRESERVE。
+    Default FINAL_NEWLINEはPRESERVE。
+    Default BOMはPRESERVE。
+
+
+6.3 DELETE
+
+FILE: src/obsolete.py
+MODE: DELETE
+
+Rules:
+
+    Targetは存在するRegular Fileであること。
+    PreviewでDELETEを強調表示する。
+    DefaultではDirectory Deleteを許可しない。
+
+
+6.4 NO_CHANGE
+
+Candidate after bytesがbefore bytesと完全一致するEditは
+NO_CHANGEとしてFailするか、明示的に報告してPlanから除外する。
+
+Recommended v0.1 behavior:
+
+    個別No-op Editはwarning + omit
+    Bundle全体がNo-opならNO_CHANGE exit
+
+とする。
+
+
+======================================================================
+7. Text Encoding / Newline Model
+======================================================================
+
+7.1 Encoding
+
+v0.1 Primary Scope:
+
+    UTF-8 text
+
+UTF-8 BOM:
+
+    Detect
+    Preserve by default
+
+とする。
+
+Partial SEARCH / REPLACEではBOMをFile-level metadataとして扱い、
+first logical lineのSEARCH textへBOM文字を要求しない。
+
+CREATE / REPLACE_FILEではBOM directiveで明示制御できる。
+
+Binary / undecodable input:
+
+    UNSUPPORTED_ENCODING
+
+
+7.2 Newline Detection
+
+Existing FileはRaw Bytesから改行形式を検出する。
+
+Supported:
+
+    LF
+    CRLF
+
+Mixed LF / CRLF:
+
+    MIXED_NEWLINE
+    fail closed
+
+Lone CR:
+
+    UNSUPPORTED_NEWLINE
+
+
+7.3 SEARCH / REPLACE Newline Behavior
+
+SEARCH / REPLACEはLogical Line Sequenceとしてmatchする。
+
+Replacement bytesはTarget Fileの既存newline styleを利用して再構築する。
+
+従って、
+
+    LF file
+        -> LFを維持
+
+    CRLF file
+        -> CRLFを維持
+
+する。
+
+
+7.4 Final Newline
+
+SEARCH / REPLACE:
+
+    Existing FileのFinal-Newline stateを自動Preserveする。
+
+CREATE:
+
+    Default YES
+    YES / NOを明示可能
+
+REPLACE_FILE:
+
+    Default PRESERVE
+    PRESERVE / YES / NOを明示可能
+
+これによりPartial EditでHuman / ChatGPTがFinal-LFを管理する必要をなくす。
+
+
+7.5 No Silent Whole-File Normalization
+
+Partial Editを理由として、
+
+    CRLF -> LF
+    BOM除去
+    Final newline追加 / 削除
+    trailing spaces strip
+
+等を自動で行わない。
+
+
+======================================================================
+8. Normalized Mutation Plan
+======================================================================
+
+Frontendの出力は、Apply Engineが理解する内部Planへ変換する。
+
+概念Model:
+
+EditPlan
+    root
+    input_fingerprint
+    files[]
+
+FileMutation
+    target
+    operation
+        CREATE
+        REPLACE
+        DELETE
+    before_exists
+    before_sha256
+    before_bytes
+    after_exists
+    after_sha256
+    after_bytes
+    newline_style
+    final_newline
+    edit_ids[]
+    changed_ranges[]
+
+SEARCH / REPLACEでも、Planning完了後はFile単位のexact before / after bytesへ落とす。
+
+これにより、Partial EditのLocatorはPlanningまでの責務となり、
+Apply時はexact File Mutationだけを扱える。
+
+
+======================================================================
+9. Path / Filesystem Boundary
+======================================================================
+
+9.1 Root
+
+Default root:
+
+    Current Working Directory
+
+Option:
+
+    --root <path>
+
+Git Repository rootを自動的に上位へ拡張しない。
+
+理由:
+
+    Gitなしでも同じSemanticsを維持する
+    subdirectoryで実行した場合に意図せず編集範囲を広げない
+
+
+9.2 Target Path
+
+Targetはroot-relative pathとする。
+
+Reject:
+
+    absolute path
+    ..
+    root escape
+    NUL
+    empty target
+
+
+9.3 File Type
+
+Existing target:
+
+    regular file only
+
+Reject:
+
+    directory
+    FIFO
+    socket
+    device
+
+
+9.4 Symlink
+
+Target自身およびTarget path componentにSymlinkがある場合、
+DefaultではFail-closedする。
+
+
+9.5 Hard Link
+
+Existing targetのst_nlink > 1ではDefault Fail-closedとする。
+
+理由:
+
+    temp + replaceによりHard-link identityが意図せず切れるため。
+
+
+9.6 Metadata
+
+v0.1 Lightweight Publisherが保証するもの:
+
+    content bytes
+    basic POSIX mode preservation
+
+v0.1でFull guaranteeしないもの:
+
+    ACL
+    file flags
+    arbitrary xattr
+    inode identity
+    UID/GID preservation under all environments
+
+特殊Metadataを厳密に維持する必要があるWorkflowは、
+将来のHigh-Assurance backend candidateとする。
+
+
+======================================================================
+10. Planning and Match Resolution
+======================================================================
+
+Step 1:
+全TargetをRead-onlyで読み込む。
+
+Step 2:
+File encoding / newline / file-type / path safetyを確認する。
+
+Step 3:
+各SEARCHをOriginal Snapshot上でexact searchする。
+
+Step 4:
+各SEARCHのmatch countを検証する。
+
+Step 5:
+同一File内Range overlapを検証する。
+
+Step 6:
+全Replacementをmemory上で反映し、Final after bytesを生成する。
+
+Implementation recommendation:
+
+    original offsetがずれないよう、
+    match rangesをOriginal Snapshot上で確定後、
+    byte / line rangeの後方から適用する。
+
+Step 7:
+before / after SHA-256を計算する。
+
+Step 8:
+Optional Syntax Validatorを実行する。
+
+Step 9:
+全FileのCombined Previewを生成する。
+
+Planning中はTargetを書き換えない。
+
+
+======================================================================
+11. Preview
+======================================================================
+
+11.1 Preview Format
+
+Unified DiffをPrimary Human Review Surfaceとする。
+
+Example:
+
+=== PLAN ===
+Root: /path/project
+Files: 3
+Edits: 5
+
+--- a/src/a.py
++++ b/src/a.py
+@@ ...
+
+--- a/src/b.py
++++ b/src/b.py
+@@ ...
+
+=== VALIDATION ===
+Python syntax: PASS
+Stale snapshot: CURRENT
+Git integration: detected / not detected
+
+
+11.2 Preview Must Include
+
+    target
+    operation
+    before SHA-256 short form
+    after SHA-256 short form
+    changed line count
+    unified diff
+    warnings
+    validation results
+    before / after newline style
+    before / after final-newline state
+    BOM state when present
+
+
+11.3 Interactive Workflow
+
+ep-edit apply edits.txt
+
+    Parse / Plan
+        ->
+    Preview
+        ->
+    Apply these changes? [y/N]
+
+Prompt待機中にUserがPreviewをChatGPTへ貼り、
+仕様 / implementation / test整合性Reviewを行える。
+
+Previewが正しければ同じProcessへ:
+
+    y
+
+を入力する。
+
+Previewを確認するためだけに一度Cancelして、
+同じEdit Specificationを再作成する運用を要求しない。
+
+
+11.4 Review Revision Workflow
+
+Actual PreviewをHuman + AIでReviewした結果、
+一部Editだけ修正が必要になることを通常Workflowとして扱う。
+
+例:
+
+    update-a-call
+        -> KEEP
+
+    update-b-call
+        -> REVISE
+
+    update-c-test
+        -> KEEP
+
+この場合、Human / ChatGPTがA / B / C全体を再Authorして再送することを要求しない。
+
+Edit SpecificationはApply前のPersistent Draft Artifactとして扱い、
+Stable EDIT IDを使って必要なEditだけを修正・削除・追加できるようにする。
+KEEPされたEdit本文は再Author / 再送しない。
+
+
+11.5 Draft Revision Command
+
+保存済みEdit Specificationに対するReview Revisionは、
+専用の小さなRevision Specificationで表現する。
+
+CLI candidate:
+
+    ep-edit revise edits.txt revision.txt
+
+Revision Specification Version 1は以下の3 Operationだけを持つ。
+
+    REVISE_EDIT
+        既存Edit block全体を置換する。
+
+    REMOVE_EDIT
+        既存Edit blockを削除する。
+
+    ADD_EDIT
+        新しいEdit blockをSpecification末尾へ追加する。
+
+Input orderはTarget mutation semanticsを持たないため、
+ADD_EDITを末尾へ追加してもRepository mutation結果の意味は変わらない。
+
+
+11.5.1 REVISE_EDIT
+
+Example:
+
+    REVISION_SPEC_VERSION: 1
+
+    REVISE_EDIT: update-b-call
+
+    <<<<<<< EDIT
+    FILE: src/b.py
+    EDIT: update-b-call
+
+    <<<<<<< SEARCH
+    old_b()
+    =======
+    better_b()
+    >>>>>>> REPLACE
+    >>>>>>> EDIT
+
+Rules:
+
+    - REVISE_EDIT valueとReplacement block内EDIT IDは一致必須。
+    - Base Specification内にexactly one同一EDIT IDが必要。
+    - EDIT ID renameはREVISE_EDITでは許可しない。
+    - Renameが必要ならREMOVE_EDIT + ADD_EDITを使用する。
+
+
+11.5.2 REMOVE_EDIT
+
+Example:
+
+    REMOVE_EDIT: obsolete-change
+
+Rules:
+
+    - Base Specification内にexactly one同一EDIT IDが必要。
+    - Target Edit block全体をDraftから除去する。
+
+
+11.5.3 ADD_EDIT
+
+Example:
+
+    ADD_EDIT: add-missing-test
+
+    <<<<<<< EDIT
+    FILE: tests/test_a.py
+    EDIT: add-missing-test
+
+    <<<<<<< SEARCH
+    def test_old():
+        ...
+    =======
+    def test_old():
+        ...
+
+    def test_new():
+        ...
+    >>>>>>> REPLACE
+    >>>>>>> EDIT
+
+Rules:
+
+    - ADD_EDIT valueと追加Block内EDIT IDは一致必須。
+    - Base Specificationに同一EDIT IDが存在してはならない。
+    - 追加Blockは通常Edit grammarとして単独でvalidでなければならない。
+
+
+11.5.4 Revision Batch Semantics
+
+1つのRevision Specificationに複数Operationを記載できる。
+
+ただし同じEDIT IDを1 Revision内で複数回Targetにしてはならない。
+
+例:
+
+    REVISE_EDIT: a
+    REMOVE_EDIT: a
+
+はREVISION_DUPLICATE_TARGETとしてFailする。
+
+理由:
+
+    Revision operation orderへ意味を持たせないためである。
+
+
+11.5.5 Revision Publication
+
+RevisionはBase Edit Specificationをmemory上で更新し、
+Revised Specification全体を再parseしてvalidであることを確認してから、
+Base Specification fileをatomic replaceする。
+
+Target Repository Fileは一切変更しない。
+
+Revision成功時は最低限:
+
+    revised edit IDs
+    removed edit IDs
+    added edit IDs
+    revised Specification fingerprint
+
+を表示する。
+
+ConvenienceとしてRevision成功後に新SpecificationのPreviewを続けて実行する
+Optionは将来追加できるが、v0.1必須要件とはしない。
+
+
+11.6 Revision Is Not Mutation
+
+Draft RevisionはTarget Repository Fileのmutationではない。
+
+Apply前のEdit Specification draftを更新するだけである。
+
+したがって:
+
+    Draft revision
+        != Repository apply
+
+    Draft revision success
+        != Edit validity
+
+Revision後には必ず新しい:
+
+    Parse
+    Plan
+    Validate
+    Preview
+
+を行う。
+
+
+11.7 Preview Authority After Revision
+
+Revision前のPreviewはRevision後のApply authorityとして使用しない。
+
+Edit Specificationが1 byteでも変わった場合、
+旧Plan / 旧PreviewをINVALIDATEDとする。
+
+新Specification全体から生成した最新PreviewだけをReview対象とする。
+
+
+11.8 Revision Safety
+
+Revision mechanism自体を複雑なSecond Authoring DSLにしない。
+
+v0.1で許可するRevision Operationは3つだけとする。
+
+    REVISE_EDIT
+        existing EDIT block whole replacement
+
+    REMOVE_EDIT
+        existing EDIT block removal
+
+    ADD_EDIT
+        new EDIT block append
+
+将来必要性が確認されるまで、以下は追加しない。
+
+    nested field patch
+    JSON Patch風partial mutation
+    locator-within-edit
+    revision postcondition DSL
+    chained revision language
+
+理由:
+
+    「Edit Specificationを修正するための複雑なSpecification」
+    を再び作らないためである。
+
+
+11.9 Alternative Manual Draft Edit
+
+Revision commandを利用しなくても、
+User / Coding Agentが保存済みEdit Specificationを通常Editorで直接修正してよい。
+
+ただしChatGPT Copy & Paste Workflowでは、
+Revision Specificationにより修正・削除・追加が必要なEditだけを
+出力できることを推奨する。
+
+どちらのRouteでも、Revision後の全件Replanning requirementは同一とする。
+
+
+======================================================================
+12. Approval and Stale-State Protection
+======================================================================
+
+12.1 Explicit Approval
+
+Accept:
+
+    y
+    yes
+
+Case-insensitive。
+
+Default:
+
+    No
+
+EOF / Ctrl-C:
+
+    no write
+
+
+12.2 Apply-Time Revalidation
+
+Approval後、最初のWrite前にEdit Specification identityと全Targetを再確認する。
+
+File-backed Edit Specification:
+
+    current specification SHA-256 == planned input_fingerprint
+
+一致しない場合:
+
+    STALE_SPECIFICATION
+    0 planned mutations published
+
+これにより、Preview表示後に別Process / Editor / ep-edit reviseで
+Draft Specificationが変更された場合、
+旧Previewに対してyを入力しても旧PlanをApplyできない。
+
+stdin / clipboard input:
+
+    Processが受領したimmutable input bytesをinput_fingerprint authorityとする。
+
+その後、全Targetを再読する。
+
+Existing target:
+
+    current bytes SHA-256 == planned before SHA-256
+
+Create target:
+
+    still absent
+
+Delete target:
+
+    current bytes == planned before bytes
+
+一致しない場合:
+
+    STALE_PREVIEW
+    0 planned mutations published
+
+
+12.3 Publish-Time Per-Target Revalidation
+
+全Targetのglobal stale check後も、
+各TargetをPublishする直前に、そのTargetのCurrent bytes / existenceを
+もう一度確認する。
+
+これはPreview後またはApply中のConcurrent Modification windowを狭めるためである。
+
+ただしLightweight v0.1はHostile / Non-cooperating concurrent writerに対する
+完全なCompare-And-Swap filesystem transactionを保証しない。
+
+必要ならstat identity等もdiagnostic evidenceとして併用できるが、
+byte SHA-256をprimary stale-state evidenceとする。
+
+
+12.4 Git HEAD
+
+Git HEADはDefault Apply authorityとしない。
+
+理由:
+
+    untracked files
+    dirty working tree
+    per-target changes
+
+をHEADだけでは表現できないため。
+
+Optional:
+
+    --bind-git-head
+
+を将来追加可能。
+
+
+======================================================================
+13. Multi-File Apply Semantics
+======================================================================
+
+13.1 Preflight
+
+全FileのPlan / Validation / stale checkが成功するまでWriteしない。
+
+
+13.2 Staging
+
+REPLACE / CREATE Candidate bytesはTargetと同じFilesystem上のtemporary fileへ
+事前Materializeする。
+
+必要に応じてModeを反映する。
+
+
+13.3 Publish
+
+全Preflight成功後にPublishを開始する。
+
+Recommended publication mechanics:
+
+REPLACE:
+    Candidate temporary fileをTargetと同じDirectory / Filesystemに作る。
+    Current Targetをrollback用backup pathへrenameした後、
+    Candidateをos.replace相当でTargetへpublishする。
+
+DELETE:
+    Current Targetをrollback用backup pathへrenameする。
+    全File成功後にbackupを削除する。
+
+CREATE:
+    Candidate temporary fileから、既存Targetを上書きしない
+    no-overwrite publicationを行う。
+    Targetが再出現した場合はFailする。
+
+Backup / temp fileはTarget root内の通常Source pathとして扱わず、
+CLI-owned ephemeral nameを使用する。
+
+
+13.4 Handled Failure Rollback
+
+通常のPython Exception / OS Error等、Processが制御を保持しているFailureでは、
+
+    すでにPublishしたTargetをOriginal stateへ戻す
+
+best-effort rollbackを実行する。
+
+CREATEのno-overwrite publicationはPlatform capabilityに応じて、
+exclusive create / link-based publication等を使用する。
+既存Targetを暗黙上書きするfallbackは行わない。
+
+Rollback成功:
+
+    APPLY_FAILED_ROLLED_BACK
+
+Rollback失敗:
+
+    ROLLBACK_FAILED
+
+として明確に報告する。
+
+
+13.5 Important Limitation
+
+v0.1 Lightweight Publisherは、
+
+    power loss
+    kernel crash
+    SIGKILL
+    abrupt process termination
+
+を跨いだDurable Multi-file Global Atomicityを保証しない。
+
+したがって本書ではv0.1を、
+
+    "all-or-nothing transaction"
+
+とは呼ばず、
+
+    "fully preflighted coordinated multi-file apply with handled-failure rollback"
+
+と定義する。
+
+Crash-durable transaction / journal / recoveryが実際に必要になった場合のみ、
+既存Safe Authoring Common Apply Engine等のHigh-Assurance backendを
+Normalized Mutation Planから再利用することを検討する。
+
+
+======================================================================
+14. Optional Git Integration
+======================================================================
+
+GitはOptionalであり、File byte identityのAuthorityではない。
+
+
+14.1 Detection
+
+root配下または上位にGit Repositoryが存在する場合、
+Informationalに表示できる。
+
+ただしroot boundaryは自動変更しない。
+
+
+14.2 Preview
+
+CLI自身のUnified Diffを必ず表示する。
+
+Preview diffのline separatorはHuman-readable displayとしてLFへ統一してよい。
+Target byte representationは別Metadataとしてnewline / final-newline / BOMを表示し、
+Preview表示用LFがTarget normalizationを意味しないことを明確にする。
+
+理由:
+
+    Git diffはuntracked new fileを通常のtracked diffと同様には表示しないため。
+
+
+14.3 After Apply
+
+Optional default-on when Git detected:
+
+    git diff --check -- <changed tracked paths>
+
+New / untracked targetについてはCLI自身のvalidationを使用する。
+
+Git command failureは明確にwarning / errorとして扱う。
+
+
+14.4 No Automatic Stage / Commit
+
+以下は行わない。
+
+    git add
+    git commit
+    git reset
+
+
+======================================================================
+15. Optional Syntax / Structure Validators
+======================================================================
+
+v0.1 Simple CLI coreで軽量に提供するDefault Validator:
+
+.py
+    Python ast.parse
+
+.json
+    json module parse
+
+.toml
+    tomllib parse
+
+これらはPython標準Libraryで成立させる。
+
+Simple CLI coreはEP_Systemの既存Dependencyを暗黙に必須化しない。
+特に以下をGeneric coreへ直接結合しない。
+
+    ruamel.yaml
+    RDFLib
+    EP Formal validator
+    Ontology validator
+    U8 semantic validator
+
+EP_Systemで追加Validationが必要な場合は、Simple CLI core外の
+Adapter / Plugin boundaryから接続する。
+
+EP_System integration candidate:
+
+.yaml / .yml
+    ruamel.yaml safe parse adapter
+
+.ttl
+    RDFLib parse-only adapter
+
+将来Standalone package側でYAML等をOptional Extraとして提供する場合も、
+Standalone dependency policyを別途Reviewし、Core必須依存へ暗黙昇格させない。
+
+ValidatorはCandidateを再Serializeしてはならない。
+Parseはread-only validationとしてのみ使用する。
+
+ValidationはCandidate after-stateへ実行する。
+
+ValidatorはSemantic correctness authorityではない。
+
+Invalid Final CandidateはApply前にRejectできる。
+
+Unknown extension:
+
+    validation skipped
+
+
+======================================================================
+16. Unified Diff Input Mode
+======================================================================
+
+SEARCH / REPLACEをPrimary v0.1 inputとする。
+
+Unified DiffはSecondary Input Modeとして提供可能とする。
+
+Example:
+
+    ep-edit apply --format unified-diff change.diff
+
+Requirements:
+
+    - shell patchをmutation authorityにしない
+    - diff parserでstrict parse
+    - malformed diffはFail-closed
+    - Current Targetへhunk exact match
+    - no fuzzy offset relocation
+    - no whitespace correction
+    - no automatic malformed-patch repair
+    - final resultは同じNormalized Mutation Planへ変換
+
+Git Repositoryの場合:
+
+    git apply --check
+
+を追加Diagnosticsとして実行可能。
+
+ただしAuthorityはCLI内部のexact Current bytes / Planとする。
+
+
+16.1 Implementation Priority
+
+Unified Diffは便利だが、
+U8-Cでhandwritten malformed diffが実際に発生している。
+
+そのためFirst Acceptanceでは、
+
+    SEARCH / REPLACE
+    CREATE
+    REPLACE_FILE
+    DELETE
+
+を必須とし、
+
+Unified Diff InputはPrimary PathのDogfooding後に追加してもよい。
+
+
+======================================================================
+17. Existing Open-Source Reuse Strategy
+======================================================================
+
+17.1 Aider
+
+AiderはSEARCH / REPLACE edit-block方式を長期間実運用している。
+
+Useful ideas:
+
+    - File + SEARCH / REPLACE block
+    - exact text / whitespaceを含むContext Authoring
+    - failed block diagnostics
+    - multi-edit handling
+
+ただしAiderにはleading-whitespace補正やsimilarity / fuzzy方向の処理も存在する。
+
+本CLIでは安全性方針が異なるため、
+
+    exact unique match
+    no fuzzy apply
+
+を独自Contractとして固定する。
+
+Recommended:
+
+    Aiderのformat / test ideasを参考にする。
+    Runtime dependencyとしてAider全体を導入しない。
+    必要ならApache-2.0条件を守り、小さなparser idea / test caseを移植する。
+
+
+17.2 Python difflib
+
+Preview Unified Diff生成にはPython stdlib difflibを利用可能。
+
+Git非依存。
+
+
+17.3 git apply --check
+
+Unified Diff modeでGit Repositoryを扱う場合のSupplemental checkとして利用可能。
+
+Primary mutation authorityにはしない。
+
+
+17.4 patch-ng
+
+Unified Diff parse / apply Libraryとして利用可能だが、
+linefeed correctionやtrailing-whitespace破損diff補正等の便利機能を持つ。
+
+本CLIの"no silent repair" policyと衝突し得るため、
+v0.1のAuthoritative mutation engineには採用しないことを推奨する。
+
+
+======================================================================
+18. Diagnostics
+======================================================================
+
+Stable Error Categories candidate:
+
+    INPUT_PARSE_ERROR
+    UNSUPPORTED_SPEC_VERSION
+    MISSING_EDIT_ID
+    DUPLICATE_EDIT_ID
+    REVISION_PARSE_ERROR
+    UNSUPPORTED_REVISION_SPEC_VERSION
+    REVISION_BASE_NOT_FOUND
+    REVISION_EDIT_NOT_FOUND
+    REVISION_EDIT_ALREADY_EXISTS
+    REVISION_EDIT_ID_MISMATCH
+    REVISION_DUPLICATE_TARGET
+    TARGET_OUTSIDE_ROOT
+    TARGET_INVALID_PATH
+    TARGET_NOT_FOUND
+    TARGET_ALREADY_EXISTS
+    TARGET_NOT_REGULAR_FILE
+    TARGET_SYMLINK
+    TARGET_HARDLINK
+    UNSUPPORTED_ENCODING
+    UNSUPPORTED_NEWLINE
+    MIXED_NEWLINE
+    SEARCH_ZERO_MATCH
+    SEARCH_MULTIPLE_MATCH
+    EDIT_OVERLAP
+    NO_CHANGE
+    CANDIDATE_VALIDATION_FAILED
+    STALE_SPECIFICATION
+    STALE_PREVIEW
+    APPLY_FAILED_ROLLED_BACK
+    ROLLBACK_FAILED
+
+
+
+18.1 Helpful Diagnostics Without Fuzzy Apply
+
+SEARCH_ZERO_MATCH時に以下を表示可能:
+
+    target
+    edit_id
+    exact_match_count
+    search line count
+    bounded line-numbered nearby evidence
+    stripped-equivalent count
+    indentation-equivalent count
+
+ただしrelaxed candidateは説明専用であり、
+Apply authorizationには使わない。
+
+
+18.2 Multiple Match
+
+SEARCH_MULTIPLE_MATCH時:
+
+    match count
+    bounded line ranges
+
+を表示し、
+
+    "Add more context to SEARCH"
+
+と案内する。
+
+Occurrence number選択を自動提案しない。
+
+
+======================================================================
+19. Clipboard / Input Providers
+======================================================================
+
+Input Providers:
+
+    file
+    stdin
+
+Optional macOS convenience:
+
+    --clipboard
+
+pbpasteが存在する場合のみ使用。
+
+Important:
+
+    Clipboard contentを一旦Manifest + N個Payload Fileへ
+    Humanが分解保存するWorkflowをDefaultとしない。
+
+Large inputも1つのEdit Specificationとして受け取る。
+
+
+======================================================================
+20. CLI Surface Candidate
+======================================================================
+
+Check only:
+
+    ep-edit check edits.txt
+
+Preview only:
+
+    ep-edit preview edits.txt
+
+Review revision of a saved draft:
+
+    ep-edit revise edits.txt revision.txt
+
+Revision changes the draft Specification only.
+Repository targets are not modified by this command.
+
+Interactive Preview + Apply:
+
+    ep-edit apply edits.txt
+
+Stdin:
+
+    pbpaste | ep-edit apply -
+
+macOS optional:
+
+    ep-edit apply --clipboard
+
+Root:
+
+    ep-edit apply --root /path/project edits.txt
+
+Machine-readable result:
+
+    --json
+
+No prompt / CI-like modeは初期Defaultにしない。
+
+将来必要なら:
+
+    --yes
+
+を明示Optionとして追加し得るが、
+Human-AI interactive workflowではDefault禁止。
+
+
+======================================================================
+21. Relationship to Existing Safe Authoring
+======================================================================
+
+21.1 Initial Implementation
+
+新CLIはStandalone Lightweight Editing Toolとして実装可能。
+
+既存Safe Authoringを削除しない。
+
+Simple CLIのGeneric codeはsrc/ep_edit/を初期境界とし、
+ep_systemへのimportを禁止する。
+
+EP_System固有のSafe Authoring / U8 / Ontology validationは
+Generic package内部へ取り込まず、必要なIntegrationだけ外側から接続する。
+
+
+21.2 Shared Input Philosophy
+
+将来High-Assurance Safe Authoringが必要な場合も、
+Human / ChatGPTへ現在のlow-level Manifest Authoringを要求しない。
+
+Simple Edit Specification
+    ->
+Normalized Mutation Plan
+    ->
+High-Assurance Adapter
+    ->
+Existing Safe Authoring / Common Apply Engine
+
+のように接続する。
+
+
+21.3 Do Not Build Future Complexity in Advance
+
+High-Assurance Adapterは、
+
+    durable crash recovery
+    metadata-complete preservation
+    unattended agent workflow
+    auditable long-lived session
+
+等が実利用で必要になった場合のみ実装する。
+
+将来使うか不明な特殊用途のために、
+以前予定していた
+
+    Unified Diff
+        ->
+    Canonical Safe Authoring Bundle
+
+全体を今すぐ完成させることを要求しない。
+
+
+21.4 Three Frontend Separation
+
+既存Safe Authoringとの関係は、Simple CLIをSafe Authoringの
+"簡易Mode"として内部従属させることではない。
+
+責務は以下のように分離する。
+
+    Frontend A
+        standalone Simple Edit CLI
+
+    Frontend B
+        EP_System U8 Programmatic Mutation
+
+    Frontend C
+        EP_System High-Assurance Safe Authoring
+
+Aは単独で完結できなければならない。
+B / CはEP_System固有authorityを保持してよい。
+
+共有候補はNormalized Mutation vocabulary / backend adapter boundaryであり、
+Frontend grammarやEP-specific authorityそのものではない。
+
+
+======================================================================
+22. Relationship to U8
+======================================================================
+
+U8-C2aは既に、
+
+    target
+    exact before bytes
+    exact before SHA-256
+    exact after bytes
+    exact after SHA-256
+
+を持つFile MutationをMaterializeする設計になっている。
+
+これはNormalized Mutation Planと強く整合する。
+
+将来U8のmutation pathを再設計する場合、
+C2a outputをSimple SEARCH / REPLACEへ逆変換する必要はなく、
+Programmatic Exact Mutation Inputとして直接Mutation backendへ渡せる。
+
+この経路はFrontend BとしてEP_System固有に保持する。
+Simple CLI Frontend Aのstandalone packageへU8 types / authorityをimportしない。
+
+ただし現在受入済みU8-C2b Formal authorityを変更する場合は、
+Repository側で別途Formal / implementation rebaselineが必要である。
+
+本書自体はその変更を自動的にAuthorizeしない。
+
+
+======================================================================
+23. Security / Safety Boundary
+======================================================================
+
+Minimum retained safety:
+
+    root containment
+    no symlink target/components
+    hardlink rejection
+    strict UTF-8 text handling
+    exact unique match
+    all-file preflight
+    Preview
+    explicit approval
+    target SHA revalidation
+    handled-failure rollback
+    syntax validation where applicable
+
+Intentionally not mandatory in Lightweight v0.1:
+
+    Semantic Intent Seal
+    durable Session state machine
+    Approval Receipt persistence
+    expected Git HEAD binding
+    ACL / flag / xattr complete preservation
+    durable crash journal
+    canonical YAML Bundle
+    locator DSL
+    structural matcher
+    user-authored SHA postconditions
+
+
+======================================================================
+24. Test Strategy
+======================================================================
+
+24.1 Parser Tests
+
+    single file single edit
+    multi-file
+    multi-edit same file
+    malformed markers
+    missing FILE
+    missing EDIT id
+    duplicate EDIT id
+    CONTENT modes
+    delimiter collision behavior
+
+
+24.1.1 Draft Revision Tests
+
+    revise one EDIT while preserving all other Edit blocks
+    remove one EDIT while preserving all other Edit blocks
+    add one EDIT
+    revision target not found FAIL
+    add duplicate EDIT ID FAIL
+    duplicate EDIT ID in base FAIL
+    replacement EDIT ID mismatch FAIL
+    same EDIT targeted twice in one revision FAIL
+    replacement block malformed FAIL
+    revised Specification full reparse
+    revised Specification full replan
+    old Preview invalidated
+    file-backed Spec changed while apply prompt waits -> STALE_SPECIFICATION
+    KEEPされたEditもCurrent filesystemへ再matchされる
+    repeated revision across separate revision runs
+    revision changes FILE target
+    revision changes SEARCH only
+    revision changes REPLACE only
+
+
+24.2 Exact Matching
+
+    exact one match PASS
+    zero match FAIL
+    two matches FAIL
+    indentation mismatch FAIL
+    comment mismatch FAIL
+    blank-line mismatch FAIL
+    tabs preserved
+    trailing spaces preserved
+
+
+24.3 Multi-Edit Planning
+
+    independent ranges PASS
+    overlap FAIL
+    order-independent planning
+    edit B cannot match edit A's generated content
+
+
+24.4 Newline / Encoding
+
+    LF preserve
+    CRLF preserve
+    final newline preserve
+    no-final-newline preserve
+    UTF-8 BOM preserve
+    mixed newline FAIL
+    invalid UTF-8 FAIL
+
+
+24.5 Filesystem
+
+    root containment
+    ../ reject
+    symlink reject
+    hardlink reject
+    regular file only
+    create existing FAIL
+    delete missing FAIL
+    mode preservation
+
+
+24.6 Preview / Stale State
+
+    preview no mutation
+    edit after preview -> STALE_PREVIEW
+    untracked file byte drift detected by SHA
+    file count unchanged but byte drift detected
+
+
+24.7 Apply / Rollback
+
+    multi-file normal success
+    fault injected on second publish
+    first published file rollback
+    rollback failure explicit
+    no false "global atomic" guarantee
+
+
+24.8 Validators
+
+    Python valid
+    Python SyntaxError reject
+    JSON valid/invalid
+    TOML valid/invalid
+
+
+24.9 Git Optional
+
+    works outside Git
+    works inside Git
+    untracked file still previewed by CLI
+    no stage
+    no commit
+    git diff --check supplemental behavior
+
+
+======================================================================
+25. Acceptance Criteria
+======================================================================
+
+A. Ordinary Authoring
+
+User / ChatGPTが以下をAuthorせずにmulti-file editできる:
+
+    Manifest YAML
+    before SHA
+    after SHA
+    locator DSL
+    postcondition DSL
+    payload file list
+
+
+B. Failure Prevention
+
+U8-Cで確認された主要Failure Classについて、
+新CLIでは以下のように解消される:
+
+derive_from_edit misuse
+    -> concept absent from normal input
+
+nonexistent match_lines_file
+    -> concept absent from normal input
+
+Final-LF payload mismatch
+    -> logical line semantics + CLI newline ownership
+
+manual before-state mismatch
+    -> current file loaded by CLI
+
+malformed shell patch
+    -> SEARCH / REPLACE primary; unified diff internally parsed only
+
+regex locator error
+    -> no regex locator required
+
+non-unique short locator
+    -> exact SEARCH with explicit context; multiple matches reject
+
+git grep untracked omission
+    -> filesystem snapshot authority
+
+working-tree entry count misses byte drift
+    -> per-target SHA-256
+
+
+C. User Review
+
+Actual Combined PreviewをApply前にChatGPTへ提示できる。
+
+
+D. Multi-file
+
+全対象がPlanning成功するまでWriteしない。
+
+
+E. Git Independence
+
+.gitなしで同じPrimary editing semanticsが動く。
+
+
+F. No Silent Guessing
+
+Fuzzy / occurrence guessingなし。
+
+
+G. Efficient Review Revision
+
+Preview Reviewで一部Editだけ修正が必要な場合:
+
+    Human / ChatGPTは修正対象EDITだけを再Authorできる。
+    不要EditはREMOVE_EDITだけで除去できる。
+    不足EditはADD_EDITだけで追加できる。
+    KEEP Editの本文を再送しない。
+    Draft Specification内ではKEEP Editをそのまま保持する。
+    Revision後は全EditをCurrent filesystemから再Planningする。
+    旧PreviewをApplyへ再利用しない。
+
+
+======================================================================
+26. Recommended Initial Implementation Scope
+======================================================================
+
+Must Have:
+
+    SEARCH / REPLACE
+    stable EDIT ID
+    draft Specification persistence
+    REVISE_EDIT whole-block revision
+    REMOVE_EDIT
+    ADD_EDIT
+    Specification fingerprint revalidation
+    multi-file
+    multi-edit
+    CREATE
+    REPLACE_FILE
+    DELETE
+    exact one-match
+    original snapshot planning
+    overlap rejection
+    UTF-8
+    LF / CRLF preservation
+    final newline preservation
+    root containment
+    symlink / hardlink rejection
+    SHA-256
+    Preview
+    explicit approval
+    stale revalidation
+    coordinated multi-file apply
+    handled-failure rollback
+    Python / JSON / TOML validation
+    standalone src/ep_edit package boundary
+    no ep_edit -> ep_system import
+    no mandatory Git / .ep-work / EP Formal dependency
+    EP-specific validation through external adapter boundary
+    tests independent from EP-specific fixtures
+    file / stdin input
+
+Should Have:
+
+    macOS --clipboard
+
+Later / Evidence-Driven:
+
+    bounded relaxed-match diagnostics
+    JSON result output
+        concrete machine consumerがstable structured parsingを実際に必要とし、
+        Human-readable outputでは不足するEvidenceが確認された場合のみ追加する。
+        Human / ChatGPT / Codex / Coding AgentがCLIを利用すること自体は、
+        JSON mode追加の十分な理由としない。
+    Git optional diagnostics
+    Git diff --check integration
+    optional validator / integration adapter implementation beyond the
+        already-required external adapter boundary
+    Unified Diff input
+    YAML validator if standalone dependency policy requires it
+    High-Assurance Safe Authoring backend adapter
+    durable session
+    crash recovery
+    ACL / flags / xattr complete preservation
+    --yes automation mode
+    structural AST edit frontend
+
+Feature availabilityそれ自体を実装理由としない。
+
+Human / ChatGPT / Codex / Coding AgentのDefault operating pathは、
+同じHuman-facing CLI surfaceとする。
+
+AgentはHuman-readable:
+
+    check
+    preview
+    apply
+    revise
+
+outputを直接利用してよい。
+
+Machine-readable modeや追加Operating Modeは、
+具体的Consumer RequirementまたはReal-use Failure / Frictionが確認された場合のみ
+追加候補へ昇格する。
+
+目的は、個々には合理的なOptionを増やすことで利用可能な組み合わせを膨張させ、
+Human / Agent / LLMが不要なModeや不利な組み合わせを選択する
+Authoring Complexityを再発させないことである。
+
+
+======================================================================
+27. Implementation Sequence
+======================================================================
+
+E0.
+Design / test / standalone extraction contract.
+
+E1.
+Standalone src/ep_edit package foundation:
+    Parser + Snapshot + Newline model.
+    ep_edit -> ep_system dependency禁止をexecutable checkする。
+
+E2.
+Stable EDIT identity + Draft Specification persistence + REVISE_EDIT / REMOVE_EDIT / ADD_EDIT.
+
+E3.
+Exact Planner + Normalized Mutation Plan.
+
+E4.
+Preview + Generic validators.
+EP-specific validatorはcore外Adapter boundaryに保持する。
+
+E5.
+Lightweight Publisher + stale check + handled-failure rollback.
+
+E6.
+Standalone CLI delivery:
+    ep-edit command
+    file / stdin / clipboard
+    CLI / core separation
+
+E7.
+Dogfood:
+    EP_System U8 continuationの実際のRepository editsでFrontend Aを使用する。
+
+    Human / ChatGPT / Codex / Coding AgentはDefaultとして同じHuman-facing
+    check / preview / apply / revise surfaceを使用する。
+
+    Agent専用Modeを先に追加せず、Human-readable Preview / Resultを
+    Coding Agent / LLMがそのまま利用できるかを実運用で確認する。
+
+    E7ではFeature Expansionを目的にしない。
+
+    新機能は、実際のDogfoodで再現可能なFailure / Friction / Consumer Requirementが
+    確認された場合のみ候補化する。
+
+    必要なEP-specific integrationは外側Adapterとして接続する。
+
+E8.
+Real-use + Standalone Extraction Review:
+    実運用Failure / usabilityを再評価する。
+    「実際に必要だった機能」と「あると便利そうな機能」を区別する。
+    Human-facing CLI surfaceがHuman / ChatGPT / Codex / Coding Agentに対して
+    共通Defaultとして十分かを再評価する。
+    Feature追加なしという結論も正常なAcceptance Outcomeとする。
+    src/ep_editがep_systemへ依存していないことを再監査する。
+    Git / .ep-work / EP-specific fixtureが必須化していないことを確認する。
+    packageを別Repositoryへほぼそのまま移せるかをreviewする。
+    dependency / packaging / README boundaryを確認する。
+
+E9.
+Real-use Evidenceにより必要性が確認された場合のみExtensionを検討する。
+
+Candidate:
+
+    JSON / machine-readable result mode
+        concrete machine consumerがstable structured parsingを必要とし、
+        Human-readable surfaceでは不足する場合のみ。
+
+    bounded relaxed-match diagnostics
+        Apply authorityには使用せず、実際のdiagnostic frictionがある場合のみ。
+
+    Git optional diagnostics
+        Git-aware diagnosticsが実運用でmaterialに有用な場合のみ。
+
+    Unified Diff input
+
+    High-Assurance backend adapter
+
+    U8 mutation integration rebaseline
+
+E9はMandatory Feature Phaseではなく、Evidence-Driven Extension Gateとする。
+
+
+======================================================================
+28. Source / Evidence Basis
+======================================================================
+
+Repository evidence reviewed:
+
+    EP_ChatGPT_Project_Context__5eaddc93bf47.txt
+
+    EP_Knowledge_History_Ontology_Maintenance_v0.1.txt
+
+    EP_Ontology_Implementation_Notes_v0.1.txt
+
+    EP_Current Safe Authoring CLI Reference
+    （Project Context内のCurrent Knowledge projection）
+
+    EP Safe Authoring CLI — Post-U8 Improvement Notes
+    （U8-C authoring incidentから作成されたdeferred design aid preview）
+
+External implementation references reviewed:
+
+    Aider-AI/aider
+        SEARCH / REPLACE edit-block implementation and history
+        Apache-2.0
+
+    conan-io/python-patch-ng
+        unified diff parser / applier
+        MIT
+        Automatic correction features exist, therefore not recommended
+        as the authoritative exact mutation engine for this design.
+
+
+======================================================================
+29. First-Pass Conclusion
+======================================================================
+
+本CLIは、
+
+    "Safe Authoringを簡略化した別のManifest System"
+
+ではなく、
+
+    "Human / ChatGPTが簡単なEdit IntentだけをAuthorし、
+     Current FileからCLIがexact before/after mutationを導出するEditor"
+
+として設計する。
+
+中心入力はSEARCH / REPLACEとする。
+
+File representation detail、SHA、Current bytes、Preview、stale-state
+revalidationはCLI側へ移す。
+
+これにより既存Safe Authoringで起きたAuthoring-side failureの多くを
+構造的に排除できる。
+
+High-Assurance機能は、実際に必要になった場合だけ、
+同じNormalized Mutation Planの後段backendとして再利用する。
+
+
+======================================================================
+30. Second-Pass Specification Review
+======================================================================
+
+本書First Passを書き終えた後、仕様を再レビューした。
+
+Review観点:
+
+    - U8-Cで実際に起きたFailure Classを本当に構造的に排除できるか
+    - "簡単"を優先しすぎて誤編集Riskを再導入していないか
+    - Multi-file safetyを過大に表現していないか
+    - LF / CRLF / Final-Newlineの責務境界が曖昧でないか
+    - Git dependencyが暗黙に復活していないか
+    - Aider等の便利なfuzzy behaviorを無意識に持ち込んでいないか
+    - 将来のHigh-Assurance用途のために不要なComplexityを先行実装していないか
+
+
+30.1 Review Finding — Global Atomicityの過大主張
+
+First-pass conceptual discussionでは"all-or-nothing"という表現を使っていた。
+
+しかし複数Fileへの個別os.replace等では、
+power loss / SIGKILLを跨ぐGlobal Atomicityは成立しない。
+
+Final specificationでは:
+
+    full preflight
+    handled-failure rollback
+    crash-durable global atomicityは非保証
+
+へ明確化した。
+
+これは既存Safe Authoringのdurable journal / recoveryが持つ価値を
+必要な用途に限定して正しく残すためでもある。
+
+
+30.2 Review Finding — SEARCH Match Order Dependency
+
+同一Fileに複数Editがある場合、
+Edit 1後の内容にEdit 2をmatchさせる仕様はAuthoring orderへ意味を持たせ、
+失敗解析を難しくする。
+
+Final specificationでは全SEARCHをOriginal Snapshotへ解決し、
+overlapを拒否する。
+
+これにより各Editは独立したselection intentとなる。
+
+
+30.3 Review Finding — NewlineとClipboard Transportの分離
+
+Final-LF failureの再発を避けるため、
+Target File newline semanticsとEdit Specification transport newlineを分離した。
+
+Partial Editでは:
+
+    target newline style preserve
+    target final-newline preserve
+
+をCLI責務とする。
+
+Clipboard末尾LFはSEARCH identityではない。
+
+
+30.4 Review Finding — BOM / CRLFをRejectする必要はない
+
+既存Safe AuthoringはRepository policyとしてBOM / CRLFをRejectする場面があった。
+
+新CLIはGit非依存の汎用Text Editorでもあるため、
+BOM / CRLFそのものをErrorとする必要はない。
+
+Final specificationでは:
+
+    UTF-8 BOM preserve
+    LF / CRLF preserve
+    mixed newline fail
+
+とした。
+
+
+30.5 Review Finding — Fuzzy MatchingをAiderから継承しない
+
+AiderのSEARCH / REPLACEはformatの実績がある一方、
+実装にはleading-whitespace補正やsimilarity系処理も存在する。
+
+本CLIでは:
+
+    exact unique match only
+
+をContractとし、
+Aiderはformat / diagnostics / test ideasの参考に限定する。
+
+
+30.6 Review Finding — Unified DiffをFirst Acceptance必須にしない
+
+Unified Diffは便利だが、
+U8-Cではhandwritten malformed diffが実際にFailureとなった。
+
+SEARCH / REPLACE + Whole-file operationsだけで通常編集を十分こなせるため、
+Unified DiffはPrimary PathのDogfooding後に追加可能とした。
+
+これは"既存Repositoryを利用しない"という意味ではない。
+
+Aider edit-blockの実績、
+Python difflib、
+Gitのoptional diagnostics等は初期から利用できる。
+
+
+30.7 Review Finding — GitはAuthorityではない
+
+git grepがuntracked fileを見落とした実例から、
+Git tracked stateをTarget identityへ使ってはならない。
+
+Final specificationでは:
+
+    filesystem current bytes + SHA-256
+        = stale-state authority
+
+    Git
+        = optional review / diagnostics
+
+とした。
+
+
+30.8 Review Finding — Publish Race
+
+Preview後のglobal SHA revalidationだけでは、
+revalidation後からindividual publishまでにConcurrent Changeが入り得る。
+
+Final specificationでは:
+
+    global revalidation
+    +
+    per-target immediate pre-publish revalidation
+    +
+    CREATE no-overwrite publication
+
+を要求する。
+
+それでもNon-cooperating concurrent writerに対する完全CASは保証しないことを明示した。
+
+
+30.9 Review Finding — Whole-file Representation Control
+
+CREATE / REPLACE_FILEではClipboardの改行ではなく、
+明示DirectiveでTarget representationを決められるよう:
+
+    NEWLINE
+    FINAL_NEWLINE
+    BOM
+
+を定義した。
+
+Partial SEARCH / REPLACEではこれらを自動Preserveする。
+
+
+30.10 Review Finding — Project-specific Syntax Validation
+
+新CLIを最初にEP_SystemでDogfoodするため、
+stdlib Python / JSON / TOMLに加えて、
+YAML / Turtle parse-only validationが有用である。
+
+Fourth-pass extraction boundary reviewにより、これらEP-specific dependencyは
+Simple CLI coreの必須依存にはしないことを追加決定した。
+
+    Generic core
+        Python / JSON / TOML stdlib validation
+
+    EP_System integration adapter
+        YAML / Turtle parse-only validation
+
+ValidatorはCandidateをre-serializeしてはならない。
+
+
+30.11 Review Finding — High-Assurance Safe Authoringを先に作り直さない
+
+将来の特殊用途を理由に、
+以前予定していたUnified Diff -> Canonical Safe Authoring Bundle redesign全体を
+先に完成させる必要はない。
+
+まず:
+
+    Simple Edit Specification
+    Normalized Mutation Plan
+    Lightweight Publisher
+
+を実装して実利用する。
+
+Durable Session / crash recovery等が必要と実証された場合だけ、
+Normalized Mutation PlanへHigh-Assurance backendを接続する。
+
+
+30.12 Second-Pass Result
+
+Second-pass result:
+
+    ACCEPTABLE AS IMPLEMENTATION DESIGN INPUT
+
+ただしRepository Formal authorityではない。
+
+実装開始時にはCurrent Repository Source / Tests / Formalを再確認し、
+EP_Systemへ導入する場合は適切なFormal / tooling checkpointを設ける。
+
+
+======================================================================
+31. Third-Pass Specification Review — Review Revision Workflow
+======================================================================
+
+Review Revision Workflow追記後に、仕様を再度レビューした。
+
+Review観点:
+
+    - 再Authoring文量削減のために新しい複雑なDSLを作っていないか
+    - KEEP Editを再利用することでValidationが省略されないか
+    - Stable EDIT IDがmutation authorityへ過剰昇格していないか
+    - 旧Previewを誤ってApplyできる余地がないか
+    - Specification draft自体の変更とRepository mutationが混同されないか
+
+
+31.1 Review Finding — EDIT IDはHuman-facing v0.1で必須
+
+Second-passではEDIT IDをRecommended / diagnostic identityとしていた。
+
+しかしReview Revisionを効率化するには、
+「どのEditをKEEP / REVISEするか」を安定参照できるIdentityが必要である。
+
+Final decision:
+
+    Human-facing v0.1ではEDIT ID必須
+    Specification内一意
+    mutation semanticsそのものではない
+    draft revision identityとして利用
+
+とする。
+
+
+31.2 Review Finding — KEEPはValidation Cacheを意味しない
+
+KEEPされたEdit本文は再送しないが、
+前回のmatch / SHA / validation結果を再利用してはならない。
+
+Revision後は:
+
+    Entire Specification
+        ->
+    Current Filesystem
+        ->
+    Full Replan
+        ->
+    New Preview
+
+を必須とする。
+
+これによりAuthoring costだけを削減し、
+stale-state safetyは削減しない。
+
+
+31.3 Review Finding — Revision Operationを3つへ限定
+
+Revision DSLを細粒度化すると、
+再びSafe Authoringと同じauthoring complexityを作り得る。
+
+一方、実際のReviewでは:
+
+    修正
+    不要Editの削除
+    不足Editの追加
+
+の3種類が自然に発生する。
+
+Final decision:
+
+    REVISE_EDIT
+    REMOVE_EDIT
+    ADD_EDIT
+
+の3 Operationだけをv0.1で許可する。
+
+同じEDIT IDを1 Revision内で複数回Targetにすることは拒否し、
+Revision order dependencyを作らない。
+
+Edit内部のREPLACE fieldだけをpatchする専用Grammar等は作らない。
+
+
+31.4 Review Finding — Old Preview Must Be Invalidated
+
+Specification revision後に旧Previewが残っていると、
+Reviewされた内容とApply対象がずれるRiskがある。
+
+Final decision:
+
+    Specification content change
+        -> old Plan invalid
+        -> old Preview invalid
+        -> new Preview mandatory
+
+とする。
+
+
+31.5 Review Finding — Preview待機中のSpecification Drift
+
+File-backed SpecificationをPreviewした後、
+別Terminalやep-edit reviseでDraftが変更される可能性がある。
+
+Target File SHAだけを再検証しても、
+旧Specificationから生成したPlanを誤ってApplyできてしまう。
+
+Final decision:
+
+    Plan時にinput_fingerprintを保持する。
+    Apply承認後、File-backed Specification SHAも再検証する。
+    不一致はSTALE_SPECIFICATIONでFailする。
+
+これによりRevision後の旧Promptへ誤ってyを入力してもRepositoryは変更されない。
+
+
+31.6 Review Finding — Persistent DraftはRepository Authorityではない
+
+保存済みEdit Specificationは、
+Apply前のWorking Draft / Authoring Artifactである。
+
+Repository Source of TruthやAccepted mutationを意味しない。
+
+Default workspaceはRepository authority外の:
+
+    .ep-work/ep-edit/
+
+等を候補とする。
+
+Exact pathはRepository integration reviewで確定する。
+
+
+31.7 Third-Pass Result
+
+Third-pass result:
+
+    ACCEPTABLE AS IMPLEMENTATION DESIGN INPUT
+
+Review revisionによって:
+
+    large multi-edit Specification
+        ->
+    Preview Review
+        ->
+    only problematic Edit re-authoring
+        ->
+    full deterministic revalidation
+
+というWorkflowが成立する。
+
+新しい複雑なAuthoring systemを導入せず、
+Authoring efficiencyとValidation safetyを分離できている。
+
+
+======================================================================
+32. Final Design Summary
+======================================================================
+
+推奨する新CLIの中心は:
+
+    Simple SEARCH / REPLACE Authoring
+        ->
+    exact Current Snapshot Planning
+        ->
+    File-level before / after Mutation
+        ->
+    Combined Preview
+        ->
+    explicit Human + AI Review
+        ->
+    optional EDIT-ID-based Draft Revision / Removal / Addition
+        ->
+    full replan + new Preview
+        ->
+    stale-state revalidation
+        ->
+    lightweight coordinated publication
+        ->
+    post-apply validation
+
+である。
+
+今までのSafe Authoringで価値があった:
+
+    Preview
+    explicit approval
+    exact current-state verification
+    deterministic mutation
+    multi-file coordination
+
+は維持する。
+
+一方、通常利用者から:
+
+    Manifest
+    Payload file management
+    SHA authoring
+    locator DSL
+    regex
+    postcondition selection
+    Canonical Bundle syntax
+    Final-LF transport responsibility
+
+を取り除く。
+
+この責務分離が、本設計の最重要Decisionである。
+
+加えてFourth-pass以降は、Simple CLIそのものの責務分離を
+EP_Systemとのpackage boundaryにも適用する。
+
+    src/ep_edit
+        = Generic / Standalone editor
+
+    ep_system integration
+        = EP-specific consumer / adapter
+
+    ep_edit -> ep_system
+        = prohibited
+
+最終的にSimple CLIはpublic / privateいずれの別Repositoryへも
+大規模なEP-specific dependency除去なしで切り出せる状態を目標とする。
+
+
+======================================================================
+33. Fourth-Pass Review — Standalone Extraction Boundary
+======================================================================
+
+Third-pass後、実装開始時にSimple CLIの将来運用方針を再確認した。
+
+想定される将来利用は、EP_System内部だけではなく、
+通常のChatGPT / Human / Coding Agent向け編集CLIとして
+publicまたはprivateの別Repositoryで継続利用することである。
+
+この前提を後付けExtraction taskへ残すと、
+EP_System固有import、U8 types、Safe Authoring assumptions、
+EP-specific validator dependencyがGeneric coreへ侵入し、
+切り出し時に大規模Refactorが必要になるRiskがある。
+
+
+33.1 Review Finding — Package BoundaryをE1から固定する
+
+Initial implementation packageは:
+
+    src/ep_edit/
+
+とする。
+
+Repository内の配置はEP_Systemと同居していても、
+Python dependency graphでは独立させる。
+
+    ep_edit -> ep_system
+        prohibited
+
+    ep_system -> ep_edit
+        allowed when integration requires it
+
+この境界はstyle preferenceではなく、将来ExtractionのDesign Constraintである。
+
+
+33.2 Review Finding — Generic CoreはEP Authorityを知らない
+
+Simple CLI coreは以下を知らない。
+
+    EP Formal Change Set
+    Ontology semantic authority
+    U8 Proposal / Mutation types
+    Safe Authoring Manifest / Session
+    Repository-specific .ep-work policy
+
+これらが必要な用途ではEP_System側AdapterがGeneric primitiveを利用する。
+
+
+33.3 Review Finding — Three Frontendを分離する
+
+編集系統は以下の3 Frontendとして扱う。
+
+    A. Simple Edit CLI
+        standalone / generic / human-facing
+
+    B. U8 Programmatic Mutation
+        EP-specific exact programmatic input
+
+    C. High-Assurance Safe Authoring
+        EP-specific durable / audited path
+
+AをB / Cのgrammarへ従属させない。
+B / CをAのSEARCH / REPLACEへ逆変換しない。
+
+共通化する場合はFile-level Normalized Mutation vocabularyを中心とする。
+
+
+33.4 Review Finding — Validator Dependency Boundary
+
+Standalone coreのDefault validationはstdlib中心とする。
+
+    Python
+    JSON
+    TOML
+
+YAML / Turtle等の追加validationはEP_System側Adapterまたは、
+将来明示的にReviewされたStandalone Optional Extraとして提供する。
+
+EP_Systemで利用できるDependencyが存在することを理由に、
+Generic coreへ必須依存を追加しない。
+
+
+33.5 Review Finding — ExtractionをE8 Acceptanceへ含める
+
+E8ではusage reviewだけでなく、実際のExtraction readinessを確認する。
+
+最低限確認するもの:
+
+    no ep_edit -> ep_system import
+    no mandatory Git repository
+    no mandatory .ep-work
+    no EP-specific test fixture requirement
+    CLI / core logic separation
+    dependency policy
+    standalone pyproject / READMEへ移行可能なpackage surface
+
+Extraction readinessが不十分なら、public/private repository化の前に
+Generic boundaryを修正する。
+
+
+33.6 Fourth-Pass Result
+
+Fourth-pass result:
+
+    ACCEPTABLE AS IMPLEMENTATION DESIGN INPUT
+
+with explicit standalone extraction boundary.
+
+本Revision 4以降、Simple CLIの通常実装では
+EP_System固有機能をGeneric coreへ直接追加しない。
+必要な統合は外側Adapter / Consumer layerで行う。
