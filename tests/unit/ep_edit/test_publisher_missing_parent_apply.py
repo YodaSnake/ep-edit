@@ -7,11 +7,27 @@ import pytest
 
 import ep_edit.publisher as publisher_module
 from ep_edit.errors import DeterministicEditError
-from ep_edit.planner import plan_edit_text
+from ep_edit.planner import plan_edit_text as _plan_edit_text
 from ep_edit.publisher import publish_edit_plan
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _assert_error(
@@ -44,7 +60,7 @@ def test_missing_parent_create_publishes_through_secure_flow(
         tmp_path,
         (
             "FILE: missing/deep/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -83,7 +99,7 @@ def test_first_missing_parent_mkdir_race_is_stale_without_owned_residue(
         tmp_path,
         (
             "FILE: missing/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -160,7 +176,7 @@ def test_secure_create_rolls_back_file_and_created_directories_on_later_failure(
         tmp_path,
         (
             "FILE: a-missing/deep/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -168,7 +184,7 @@ def test_secure_create_rolls_back_file_and_created_directories_on_later_failure(
             + ">" * 7
             + " CONTENT\n"
             + "FILE: z.py\n"
-            + "EDIT: update-z\n"
+            + "LABEL: update-z\n"
             + "<" * 7
             + " SEARCH\n"
             + "z = 1\n"
@@ -238,7 +254,7 @@ def test_secure_create_post_verify_failure_rolls_back_created_state(
         tmp_path,
         (
             "FILE: missing/deep/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -288,7 +304,7 @@ def test_secure_final_target_race_preserves_foreign_state_and_reports_rollback_f
         tmp_path,
         (
             "FILE: missing/deep/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"

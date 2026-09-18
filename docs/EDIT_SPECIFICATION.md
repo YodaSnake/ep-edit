@@ -2,9 +2,9 @@
 
 This document describes the public authoring grammar used by `ep-edit`.
 
-For new work, prefer Edit Specification v2 and Revision Specification v2.
-
-Version 1 remains supported for backward compatibility.
+The authoring grammar is unversioned. Edit Specifications begin directly
+with `FILE:` blocks, and Revision Specifications begin directly with revision
+operations.
 
 ## Authoring model
 
@@ -22,30 +22,13 @@ The Specification does not authorize fuzzy matching or target discovery.
 Planning succeeds only when the declared operation is valid against the
 current target state.
 
-## Version selection
+## Edit Specification
 
-For new Specifications, begin with:
+A Specification contains one or more `FILE:` blocks.
 
-    EDIT_SPEC_VERSION: 2
-
-The first non-blank line must contain that exact v2 declaration when v2 is
-intended.
-
-If no `EDIT_SPEC_VERSION:` declaration is present, the compatibility parser
-uses version 1 semantics.
-
-An explicit unsupported version fails with `UNSUPPORTED_SPEC_VERSION`.
-
-Version 2 is preferred because edit identity is generated from semantic
-content instead of being invented by the author.
-
-## Edit Specification v2
-
-A v2 Specification contains one or more `FILE:` blocks.
+The first non-blank line is therefore normally a `FILE:` declaration.
 
 A basic SEARCH / REPLACE edit is:
-
-    EDIT_SPEC_VERSION: 2
 
     FILE: src/example.py
     LABEL: update example
@@ -58,10 +41,9 @@ A basic SEARCH / REPLACE edit is:
 
 `LABEL:` is optional.
 
-There is no authored `EDIT:` line in v2.
+There is no authored `EDIT:` line.
 
-If an `EDIT:` line is present in a v2 block, parsing fails with
-`INPUT_PARSE_ERROR`.
+If an `EDIT:` line is present, parsing fails with `INPUT_PARSE_ERROR`.
 
 ## FILE target
 
@@ -77,7 +59,7 @@ file.
 
 ## LABEL
 
-In v2, an optional `LABEL:` may appear immediately after `FILE:`.
+An optional `LABEL:` may appear immediately after `FILE:`.
 
 Example:
 
@@ -95,7 +77,7 @@ Changing only the LABEL therefore leaves the EditRef unchanged.
 
 ## SEARCH / REPLACE
 
-The v2 partial-edit form is:
+The partial-edit form is:
 
     FILE: path/to/file.txt
     LABEL: optional description
@@ -127,7 +109,7 @@ Similarity diagnostics do not change these rules.
 
 ## Deterministic EditRef
 
-Version 2 generates an EditRef for every edit.
+`ep-edit` generates an EditRef for every edit.
 
 The public form is:
 
@@ -154,8 +136,8 @@ LABEL is excluded.
 Changing semantic content can therefore change the EditRef even when the
 Human-facing label does not.
 
-Two identical semantic v2 edits in one Specification generate the same
-EditRef and fail closed with `DUPLICATE_EDIT_REF`.
+Two identical semantic edits in one Specification generate the same EditRef
+and fail closed with `DUPLICATE_EDIT_REF`.
 
 ## Whole-file operations
 
@@ -183,8 +165,6 @@ Each directive may appear at most once in a whole-file block.
 ## CREATE
 
 Example:
-
-    EDIT_SPEC_VERSION: 2
 
     FILE: generated/example.txt
     LABEL: create example
@@ -237,8 +217,6 @@ weaker compatibility path.
 
 Example:
 
-    EDIT_SPEC_VERSION: 2
-
     FILE: config/example.txt
     MODE: REPLACE_FILE
     NEWLINE: LF
@@ -267,8 +245,6 @@ DELETE contains no CONTENT and no representation directives.
 
 Example:
 
-    EDIT_SPEC_VERSION: 2
-
     FILE: obsolete.txt
     LABEL: remove obsolete file
     MODE: DELETE
@@ -287,36 +263,6 @@ same target.
 Such an operation mix fails during Specification validation rather than
 defining an implicit order.
 
-## Version 1 compatibility
-
-Version 1 uses Human-authored edit identifiers.
-
-Example:
-
-    EDIT_SPEC_VERSION: 1
-
-    FILE: src/example.py
-    EDIT: update-example
-
-    <<<<<<< SEARCH
-    old_value = 1
-    =======
-    old_value = 2
-    >>>>>>> REPLACE
-
-For compatibility, omission of the version declaration also enters v1
-parsing.
-
-Every v1 FILE block must be followed by a non-empty `EDIT:` identifier.
-
-Duplicate authored identifiers fail with `DUPLICATE_EDIT_ID`.
-
-Version 1 supports the same three whole-file modes and the same
-representation-directive value set.
-
-For new authoring, use v2 unless compatibility with an existing v1 draft is
-specifically required.
-
 ## Revision Specifications
 
 `ep-edit revise` transforms a saved Edit Specification draft.
@@ -327,20 +273,13 @@ Command shape:
 
     ep-edit revise EDIT_SPECIFICATION REVISION_SPECIFICATION
 
-The Revision Specification version must match the base Edit Specification
-version.
-
-A mismatch fails with `REVISION_VERSION_MISMATCH`.
-
 After revision, rerun `check` and `preview`.
 
 An earlier Preview does not authorize revised Specification bytes.
 
-## Revision Specification v2
+## Revision Specification
 
-A v2 Revision Specification begins with:
-
-    REVISION_SPEC_VERSION: 2
+A Revision Specification begins directly with a revision operation.
 
 The supported operations are:
 
@@ -353,8 +292,6 @@ The supported operations are:
 `REVISE_EDIT` selects an existing generated EditRef.
 
 Example:
-
-    REVISION_SPEC_VERSION: 2
 
     REVISE_EDIT: e_0123456789abcdef
 
@@ -369,9 +306,8 @@ Example:
     >>>>>>> REPLACE
     >>>>>>> EDIT
 
-The embedded block does not include its own `EDIT_SPEC_VERSION:` line.
-
-It must describe exactly one valid v2 edit.
+The embedded block begins directly with `FILE:` and must describe exactly
+one valid edit.
 
 The selector is the old EditRef.
 
@@ -393,21 +329,17 @@ REMOVE uses an existing generated EditRef and has no embedded edit block.
 
 Example:
 
-    REVISION_SPEC_VERSION: 2
-
     REMOVE_EDIT: e_0123456789abcdef
 
 The selector must have generated EditRef form.
 
-A Human-authored arbitrary name is not accepted as a v2 selector.
+A Human-authored arbitrary name is not accepted as a selector.
 
 ### ADD_EDIT
 
-In v2, ADD has no authored identifier after the colon.
+ADD has no authored identifier after the colon.
 
 Example:
-
-    REVISION_SPEC_VERSION: 2
 
     ADD_EDIT:
 
@@ -423,11 +355,11 @@ Example:
 
 The added edit identity is derived from the embedded block.
 
-This is invalid in v2:
+This is invalid:
 
     ADD_EDIT: authored-name
 
-because v2 does not allow the author to assign an EditRef.
+because the author does not assign an EditRef.
 
 ### Duplicate revision targets
 
@@ -437,43 +369,6 @@ Specification.
 Duplicate targeting fails with `REVISION_DUPLICATE_TARGET`.
 
 The same generated EditRef must also not be added more than once.
-
-## Revision Specification v1
-
-Version 1 begins with:
-
-    REVISION_SPEC_VERSION: 1
-
-Version 1 operations use authored `EDIT:` identifiers rather than generated
-EditRefs.
-
-A v1 revise operation has the form:
-
-    REVISION_SPEC_VERSION: 1
-
-    REVISE_EDIT: update-example
-
-    <<<<<<< EDIT
-    FILE: src/example.py
-    EDIT: update-example
-
-    <<<<<<< SEARCH
-    old()
-    =======
-    better()
-    >>>>>>> REPLACE
-    >>>>>>> EDIT
-
-A v1 REMOVE uses the authored ID:
-
-    REVISION_SPEC_VERSION: 1
-
-    REMOVE_EDIT: update-example
-
-REVISE and ADD operations contain one embedded edit block.
-
-Revision processing validates the embedded edit and the relevant authored-ID
-consistency rather than treating an arbitrary nested block as trusted text.
 
 ## Structural escaping
 
@@ -545,18 +440,12 @@ Malformed syntax fails closed.
 Important Specification and Revision parsing categories include:
 
 - `INPUT_PARSE_ERROR`;
-- `UNSUPPORTED_SPEC_VERSION`;
-- `MISSING_EDIT_ID`;
-- `DUPLICATE_EDIT_ID`;
 - `DUPLICATE_EDIT_REF`;
 - `UNSUPPORTED_ENCODING`;
 - `REVISION_PARSE_ERROR`;
-- `UNSUPPORTED_REVISION_SPEC_VERSION`;
 - `REVISION_DUPLICATE_TARGET`;
-- `REVISION_VERSION_MISMATCH`;
 - `REVISION_EDIT_NOT_FOUND`;
 - `REVISION_EDIT_ALREADY_EXISTS`;
-- `REVISION_EDIT_ID_MISMATCH`;
 - `REVISION_BASE_NOT_FOUND`.
 
 Planning and publication can additionally surface deterministic categories
@@ -657,17 +546,16 @@ Preview, and same-Specification Apply procedure.
 
 For new work:
 
-1. use `EDIT_SPEC_VERSION: 2`;
-2. use root-relative target paths;
-3. use the smallest exact SEARCH block that is unique;
-4. preserve meaningful blank lines exactly;
-5. use LABEL for review context, not identity;
-6. use whole-file modes only when the whole-file operation is intentional;
-7. use structural escaping when literal payload lines collide with grammar
+1. use root-relative target paths;
+2. use the smallest exact SEARCH block that is unique;
+3. preserve meaningful blank lines exactly;
+4. use LABEL for review context, not identity;
+5. use whole-file modes only when the whole-file operation is intentional;
+6. use structural escaping when literal payload lines collide with grammar
    delimiters;
-8. treat repair metadata as evidence, not mutation authority;
-9. rerun CHECK and PREVIEW after any revision;
-10. apply only the exact saved Specification that was reviewed.
+7. treat repair metadata as evidence, not mutation authority;
+8. rerun CHECK and PREVIEW after any revision;
+9. apply only the exact saved Specification that was reviewed.
 
 The core rule is simple:
 

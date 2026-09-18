@@ -376,7 +376,7 @@ contract.
 
 Unsupported or invalid encoding fails closed rather than being guessed.
 
-See `EDIT_SPECIFICATION.md` for v1/v2 Revision grammar and EditRef selectors.
+See `EDIT_SPECIFICATION.md` for Revision grammar and EditRef selectors.
 
 ## Exit behavior
 

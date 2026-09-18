@@ -8,4 +8,5 @@ htmlcov/
 build/
 dist/
 .venv/
+.ep-work/
 .DS_Store

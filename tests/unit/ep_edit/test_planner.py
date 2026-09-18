@@ -13,6 +13,7 @@ from ep_edit.planner import (
 )
 from ep_edit.revision import revise_edit_specification
 from ep_edit.snapshot import NewlineStyle
+from ep_edit.specification import parse_edit_specification
 
 
 pytestmark = pytest.mark.unit
@@ -47,21 +48,28 @@ def _write(
 def _spec(
     *,
     target: str = "src/a.py",
-    edit_id: str = "edit-a",
     search: str,
     replace: str,
 ) -> str:
     return (
-        "EDIT_SPEC_VERSION: 1\n"
-        "\n"
         f"FILE: {target}\n"
-        f"EDIT: {edit_id}\n"
         "\n"
         "<<<<<<< SEARCH\n"
         f"{search}"
         "=======\n"
         f"{replace}"
         ">>>>>>> REPLACE\n"
+    )
+
+
+def _edit_refs(
+    text: str,
+) -> tuple[str, ...]:
+    return tuple(
+        edit.edit_id
+        for edit in parse_edit_specification(
+            text
+        ).edits
     )
 
 
@@ -213,10 +221,9 @@ def test_multiple_independent_edits_use_original_snapshot(
         b"old_a()\nkeep()\nold_b()\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/a.py
-EDIT: edit-a
+LABEL: edit-a
 
 <<<<<<< SEARCH
 old_a()
@@ -225,7 +232,7 @@ new_a()
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: edit-b
+LABEL: edit-b
 
 <<<<<<< SEARCH
 old_b()
@@ -242,9 +249,9 @@ new_b()
     assert plan.files[0].after_bytes == (
         b"new_a()\nkeep()\nnew_b()\n"
     )
-    assert plan.files[0].edit_ids == (
-        "edit-a",
-        "edit-b",
+    assert (
+        plan.files[0].edit_ids
+        == _edit_refs(text)
     )
 
 
@@ -257,10 +264,9 @@ def test_edit_cannot_match_content_generated_by_prior_edit(
         b"old()\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/a.py
-EDIT: first
+LABEL: first
 
 <<<<<<< SEARCH
 old()
@@ -269,7 +275,7 @@ generated()
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: second
+LABEL: second
 
 <<<<<<< SEARCH
 generated()
@@ -296,10 +302,9 @@ def test_overlap_fails_closed(
         b"a\nb\nc\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/a.py
-EDIT: first
+LABEL: first
 
 <<<<<<< SEARCH
 a
@@ -309,7 +314,7 @@ x
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: second
+LABEL: second
 
 <<<<<<< SEARCH
 b
@@ -337,10 +342,9 @@ def test_adjacent_ranges_are_allowed(
         b"a\nb\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/a.py
-EDIT: first
+LABEL: first
 
 <<<<<<< SEARCH
 a
@@ -349,7 +353,7 @@ x
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: second
+LABEL: second
 
 <<<<<<< SEARCH
 b
@@ -380,10 +384,9 @@ def test_multi_file_plan_is_target_sorted(
         b"old_a()\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/z.py
-EDIT: edit-z
+LABEL: edit-z
 
 <<<<<<< SEARCH
 old_z()
@@ -392,7 +395,7 @@ new_z()
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: edit-a
+LABEL: edit-a
 
 <<<<<<< SEARCH
 old_a()
@@ -424,10 +427,9 @@ def test_edit_order_does_not_change_file_result(
         b"a\nmiddle\nb\n",
     )
 
-    first = """EDIT_SPEC_VERSION: 1
-
+    first = """
 FILE: src/a.py
-EDIT: edit-a
+LABEL: edit-a
 
 <<<<<<< SEARCH
 a
@@ -436,7 +438,7 @@ x
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: edit-b
+LABEL: edit-b
 
 <<<<<<< SEARCH
 b
@@ -445,10 +447,9 @@ y
 >>>>>>> REPLACE
 """
 
-    second = """EDIT_SPEC_VERSION: 1
-
+    second = """
 FILE: src/a.py
-EDIT: edit-b
+LABEL: edit-b
 
 <<<<<<< SEARCH
 b
@@ -457,7 +458,7 @@ y
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: edit-a
+LABEL: edit-a
 
 <<<<<<< SEARCH
 a
@@ -662,7 +663,15 @@ def test_changed_range_uses_original_line_indexes(
     )
     changed = plan.files[0].changed_ranges[0]
 
-    assert changed.edit_id == "edit-a"
+    assert (
+        changed.edit_id
+        == _edit_refs(
+            _spec(
+                search="old\n",
+                replace="new\nextra\n",
+            )
+        )[0]
+    )
     assert changed.start_line_index == 1
     assert changed.end_line_index == 2
     assert changed.replacement_line_count == 2
@@ -677,10 +686,9 @@ def test_individual_noop_is_warned_and_omitted(
         b"same()\nold()\n",
     )
 
-    text = """EDIT_SPEC_VERSION: 1
-
+    text = """
 FILE: src/a.py
-EDIT: noop
+LABEL: noop
 
 <<<<<<< SEARCH
 same()
@@ -689,7 +697,7 @@ same()
 >>>>>>> REPLACE
 
 FILE: src/a.py
-EDIT: change
+LABEL: change
 
 <<<<<<< SEARCH
 old()
@@ -703,8 +711,9 @@ new()
         text,
     )
 
-    assert plan.files[0].edit_ids == (
-        "change",
+    assert (
+        plan.files[0].edit_ids
+        == (_edit_refs(text)[1],)
     )
     assert [
         warning.code
@@ -812,10 +821,10 @@ def test_revised_specification_is_fully_replanned(
         b"old_b()\n",
     )
 
-    base = """EDIT_SPEC_VERSION: 1
+    base = """
 
 FILE: src/a.py
-EDIT: keep-a
+LABEL: keep-a
 
 <<<<<<< SEARCH
 old_a()
@@ -824,7 +833,7 @@ new_a()
 >>>>>>> REPLACE
 
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -833,13 +842,16 @@ new_b()
 >>>>>>> REPLACE
 """
 
-    revision = """REVISION_SPEC_VERSION: 1
+    _, replanned_ref = _edit_refs(
+        base
+    )
 
-REVISE_EDIT: revise-b
+    revision = f"""
+REVISE_EDIT: {replanned_ref}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -882,10 +894,10 @@ def test_keep_edit_is_rematched_after_revision(
         b"old_b()\n",
     )
 
-    base = """EDIT_SPEC_VERSION: 1
+    base = """
 
 FILE: src/a.py
-EDIT: keep-a
+LABEL: keep-a
 
 <<<<<<< SEARCH
 old_a()
@@ -894,7 +906,7 @@ new_a()
 >>>>>>> REPLACE
 
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -903,13 +915,16 @@ new_b()
 >>>>>>> REPLACE
 """
 
-    revision = """REVISION_SPEC_VERSION: 1
+    _, rematch_ref = _edit_refs(
+        base
+    )
 
-REVISE_EDIT: revise-b
+    revision = f"""
+REVISE_EDIT: {rematch_ref}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -955,15 +970,18 @@ def test_revision_changes_plan_fingerprint(
         base,
     )
 
+    base_ref = _edit_refs(
+        base
+    )[0]
+
     revised = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: edit-a
+        f"""
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: edit-a
+LABEL: edit-a
 
 <<<<<<< SEARCH
 old()

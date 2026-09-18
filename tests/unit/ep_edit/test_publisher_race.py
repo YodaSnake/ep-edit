@@ -97,8 +97,8 @@ def test_create_race_before_any_publication_is_stale_not_rollback_failure(
 ) -> None:
     plan = plan_edit_text(
         tmp_path,
-        """FILE: new.txt
-EDIT: create-new
+        """
+FILE: new.txt
 MODE: CREATE
 <<<<<<< CONTENT
 planned
@@ -143,8 +143,8 @@ def test_create_race_after_prior_publish_rolls_back_only_cli_owned_mutation(
 
     plan = plan_edit_text(
         tmp_path,
-        """FILE: a.py
-EDIT: update-a
+        """
+FILE: a.py
 <<<<<<< SEARCH
 a = 1
 =======
@@ -152,7 +152,6 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: z.txt
-EDIT: create-z
 MODE: CREATE
 <<<<<<< CONTENT
 planned

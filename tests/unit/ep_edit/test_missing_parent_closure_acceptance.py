@@ -21,7 +21,6 @@ def _create_block(
 ) -> str:
     return (
         f"FILE: {target}\n"
-        f"EDIT: create-{target}\n"
         "MODE: CREATE\n"
         + "<" * 7
         + " CONTENT\n"
@@ -38,7 +37,6 @@ def _replace_block(
 ) -> str:
     return (
         f"FILE: {target}\n"
-        f"EDIT: replace-{target}\n"
         + "<" * 7
         + " SEARCH\n"
         + before
@@ -195,9 +193,11 @@ def test_cli_apply_missing_parent_create_reaches_publication(
         / "edit-spec.txt"
     )
     specification.write_bytes(
-        _create_block(
-            "missing/from-cli/new.txt",
-            "cli-created\n",
+        (
+            _create_block(
+                "missing/from-cli/new.txt",
+                "cli-created\n",
+            )
         ).encode(
             "utf-8"
         )

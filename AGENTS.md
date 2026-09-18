@@ -22,22 +22,17 @@ For ordinary deterministic text editing, use:
 Do not replace an exact-edit failure with fuzzy patching merely to make the
 change succeed.
 
-## Prefer Edit Specification v2
+## Edit Specification
 
-For new work, prefer:
+For new work, begin directly with a `FILE:` block.
 
-`EDIT_SPEC_VERSION: 2`
-
-Version 2 derives deterministic EditRefs from canonical semantic edit
+`ep-edit` derives deterministic EditRefs from canonical semantic edit
 identity.
 
 Do not invent authored EditRefs.
 
 `LABEL:` is optional display context for Humans and agents. It is excluded
 from EditRef identity.
-
-Version 1 remains a compatibility format and should not be selected for new
-authoring without a specific reason.
 
 ## Exact matching is authority
 

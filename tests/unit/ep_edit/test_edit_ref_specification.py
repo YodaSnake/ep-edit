@@ -21,7 +21,7 @@ _CONTENT_OPEN = "<" * 7 + " CONTENT"
 _CONTENT_CLOSE = ">" * 7 + " CONTENT"
 
 
-SEARCH_SPEC = f"""EDIT_SPEC_VERSION: 2
+SEARCH_SPEC = f"""
 
 FILE: src/a.py
 
@@ -46,15 +46,13 @@ def _assert_error(
     return raised.value
 
 
-def test_v2_search_edit_generates_deterministic_ref() -> None:
+def test_search_edit_generates_deterministic_ref() -> None:
     first = parse_edit_specification(
         SEARCH_SPEC
     )
     second = parse_edit_specification(
         SEARCH_SPEC
     )
-
-    assert first.version == 2
 
     first_edit = first.edits[0]
     second_edit = second.edits[0]
@@ -76,7 +74,7 @@ def test_v2_search_edit_generates_deterministic_ref() -> None:
     )
 
 
-def test_v2_label_is_optional_and_not_part_of_identity() -> None:
+def test_label_is_optional_and_not_part_of_identity() -> None:
     unlabeled = parse_edit_specification(
         SEARCH_SPEC
     ).edits[0]
@@ -98,7 +96,7 @@ def test_v2_label_is_optional_and_not_part_of_identity() -> None:
     )
 
 
-def test_v2_content_change_changes_edit_ref() -> None:
+def test_content_change_changes_edit_ref() -> None:
     original = parse_edit_specification(
         SEARCH_SPEC
     ).edits[0]
@@ -116,7 +114,7 @@ def test_v2_content_change_changes_edit_ref() -> None:
     )
 
 
-def test_v2_target_change_changes_edit_ref() -> None:
+def test_target_change_changes_edit_ref() -> None:
     original = parse_edit_specification(
         SEARCH_SPEC
     ).edits[0]
@@ -134,7 +132,7 @@ def test_v2_target_change_changes_edit_ref() -> None:
     )
 
 
-def test_v2_rejects_authored_edit_id() -> None:
+def test_rejects_authored_edit_id() -> None:
     error = _assert_error(
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
@@ -154,7 +152,7 @@ def test_v2_rejects_authored_edit_id() -> None:
     )
 
 
-def test_v2_duplicate_identical_edit_ref_fails_closed() -> None:
+def test_duplicate_identical_edit_ref_fails_closed() -> None:
     duplicate_block = (
         SEARCH_SPEC
         .partition(
@@ -177,10 +175,10 @@ def test_v2_duplicate_identical_edit_ref_fails_closed() -> None:
     )
 
 
-def test_v2_create_generates_edit_ref() -> None:
+def test_create_generates_edit_ref() -> None:
     specification = (
         parse_edit_specification(
-            f"""EDIT_SPEC_VERSION: 2
+            f"""
 
 FILE: generated/example.txt
 LABEL: create example
@@ -212,12 +210,11 @@ created
     )
 
 
-def test_v1_authored_edit_id_remains_supported() -> None:
-    specification = (
-        parse_edit_specification(
-            f"""EDIT_SPEC_VERSION: 1
-
-FILE: src/a.py
+def test_authored_edit_id_is_rejected_without_version_header() -> None:
+    error = _assert_error(
+        "INPUT_PARSE_ERROR",
+        lambda: parse_edit_specification(
+            f"""FILE: src/a.py
 EDIT: legacy-id
 
 {_SEARCH_OPEN}
@@ -226,10 +223,10 @@ old_a()
 new_a()
 {_REPLACE_CLOSE}
 """
-        )
+        ),
     )
 
     assert (
-        specification.edits[0].edit_id
-        == "legacy-id"
+        "EditRef is generated"
+        in error.message
     )

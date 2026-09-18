@@ -9,7 +9,7 @@ import pytest
 from ep_edit.errors import DeterministicEditError
 from ep_edit.planner import (
     FileMutationOperation,
-    plan_edit_text,
+    plan_edit_text as _plan_edit_text,
 )
 from ep_edit.snapshot import NewlineStyle
 from ep_edit.specification import (
@@ -18,11 +18,35 @@ from ep_edit.specification import (
     NewlineDirective,
     WholeFileEdit,
     WholeFileMode,
-    parse_edit_specification,
+    parse_edit_specification as _parse_edit_specification,
 )
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def parse_edit_specification(
+    text: str,
+):
+    return _parse_edit_specification(
+        _current_spec(text)
+    )
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _assert_error(
@@ -54,10 +78,8 @@ def _write(
 
 def test_parse_create_uses_documented_defaults() -> None:
     specification = parse_edit_specification(
-        """EDIT_SPEC_VERSION: 1
-
-FILE: src/new.py
-EDIT: create-new
+        """FILE: src/new.py
+LABEL: create-new
 MODE: CREATE
 
 <<<<<<< CONTENT
@@ -70,7 +92,9 @@ def hello():
 
     assert isinstance(edit, WholeFileEdit)
     assert edit.mode is WholeFileMode.CREATE
-    assert edit.edit_id == "create-new"
+    assert edit.label == "create-new"
+    assert edit.edit_id.startswith("e_")
+    assert len(edit.edit_id) == 18
     assert edit.content_lines == (
         "def hello():",
         '    return "hello"',
@@ -86,7 +110,7 @@ def hello():
 def test_parse_create_accepts_explicit_representation() -> None:
     edit = parse_edit_specification(
         """FILE: src/new.txt
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 BOM: YES
 FINAL_NEWLINE: NO
@@ -110,7 +134,7 @@ beta
 def test_parse_replace_file_uses_preserve_defaults() -> None:
     edit = parse_edit_specification(
         """FILE: config/example.toml
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 value = 2
@@ -131,7 +155,7 @@ value = 2
 def test_parse_delete_has_no_content_or_representation() -> None:
     edit = parse_edit_specification(
         """FILE: src/obsolete.py
-EDIT: remove-obsolete
+LABEL: remove-obsolete
 MODE: DELETE
 """
     ).edits[0]
@@ -144,18 +168,20 @@ MODE: DELETE
     assert edit.bom is None
 
 
-def test_whole_file_operation_still_requires_edit_id() -> None:
-    _assert_error(
-        "MISSING_EDIT_ID",
-        lambda: parse_edit_specification(
-            """FILE: src/new.py
+def test_whole_file_operation_generates_edit_ref_without_label() -> None:
+    edit = parse_edit_specification(
+        """FILE: src/new.py
 MODE: CREATE
 <<<<<<< CONTENT
 value = 1
 >>>>>>> CONTENT
 """
-        ),
-    )
+    ).edits[0]
+
+    assert isinstance(edit, WholeFileEdit)
+    assert edit.label is None
+    assert edit.edit_id.startswith("e_")
+    assert len(edit.edit_id) == 18
 
 
 def test_unknown_whole_file_mode_fails_closed() -> None:
@@ -163,7 +189,7 @@ def test_unknown_whole_file_mode_fails_closed() -> None:
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
             """FILE: src/a.py
-EDIT: bad-mode
+LABEL: bad-mode
 MODE: OVERWRITE
 <<<<<<< CONTENT
 value
@@ -178,7 +204,7 @@ def test_duplicate_representation_directive_fails_closed() -> None:
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
             """FILE: src/a.py
-EDIT: duplicate-newline
+LABEL: duplicate-newline
 MODE: CREATE
 NEWLINE: LF
 NEWLINE: CRLF
@@ -206,7 +232,7 @@ def test_create_cannot_preserve_absent_representation(
         lambda: parse_edit_specification(
             (
                 "FILE: src/a.py\n"
-                "EDIT: create-a\n"
+                "LABEL: create-a\n"
                 "MODE: CREATE\n"
                 f"{directive}\n"
                 "<<<<<<< CONTENT\n"
@@ -232,7 +258,7 @@ def test_delete_rejects_representation_or_content(
         lambda: parse_edit_specification(
             (
                 "FILE: src/a.py\n"
-                "EDIT: delete-a\n"
+                "LABEL: delete-a\n"
                 "MODE: DELETE\n"
                 f"{unexpected}\n"
             )
@@ -246,7 +272,7 @@ def test_content_rejects_nul() -> None:
         lambda: parse_edit_specification(
             (
                 "FILE: src/a.py\n"
-                "EDIT: create-a\n"
+                "LABEL: create-a\n"
                 "MODE: CREATE\n"
                 "<<<<<<< CONTENT\n"
                 "bad\x00value\n"
@@ -261,14 +287,14 @@ def test_whole_file_and_partial_edit_cannot_share_target() -> None:
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
             """FILE: src/a.py
-EDIT: whole
+LABEL: whole
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 whole
 >>>>>>> CONTENT
 
 FILE: src/a.py
-EDIT: partial
+LABEL: partial
 <<<<<<< SEARCH
 old
 =======
@@ -283,14 +309,20 @@ def test_two_whole_file_edits_cannot_share_target() -> None:
     _assert_error(
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
-            """FILE: src/a.py
-EDIT: first
-MODE: DELETE
-
-FILE: src/a.py
-EDIT: second
-MODE: DELETE
-"""
+            (
+                "FILE: src/a.py\n"
+                "LABEL: first\n"
+                "MODE: DELETE\n"
+                "\n"
+                "FILE: src/a.py\n"
+                "LABEL: second\n"
+                "MODE: REPLACE_FILE\n"
+                + "<" * 7
+                + " CONTENT\n"
+                + "replacement\n"
+                + ">" * 7
+                + " CONTENT\n"
+            )
         ),
     )
 
@@ -300,13 +332,19 @@ def test_create_default_builds_exact_create_mutation(
 ) -> None:
     (tmp_path / "src").mkdir()
     text = """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 alpha
 beta
 >>>>>>> CONTENT
 """
+
+    expected_ref = (
+        parse_edit_specification(
+            text
+        ).edits[0].edit_id
+    )
 
     plan = plan_edit_text(
         tmp_path,
@@ -331,7 +369,9 @@ beta
     )
     assert mutation.newline_style is NewlineStyle.LF
     assert mutation.final_newline is True
-    assert mutation.edit_ids == ("create-new",)
+    assert mutation.edit_ids == (
+        expected_ref,
+    )
     assert mutation.changed_ranges == ()
     assert not (
         tmp_path / "src/new.py"
@@ -346,7 +386,7 @@ def test_create_explicit_crlf_no_final_newline_and_bom(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.txt
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 NEWLINE: CRLF
 FINAL_NEWLINE: NO
@@ -376,7 +416,7 @@ def test_create_final_newline_no_can_create_empty_file(
     plan = plan_edit_text(
         tmp_path,
         """FILE: empty.txt
-EDIT: create-empty
+LABEL: create-empty
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -403,7 +443,7 @@ def test_create_existing_target_fails_closed(
         lambda: plan_edit_text(
             tmp_path,
             """FILE: src/a.py
-EDIT: create-a
+LABEL: create-a
 MODE: CREATE
 <<<<<<< CONTENT
 new
@@ -419,7 +459,7 @@ def test_create_missing_parent_chain_is_planned_without_write(
     plan = plan_edit_text(
         tmp_path,
         """FILE: missing/deep/a.py
-EDIT: create-a
+LABEL: create-a
 MODE: CREATE
 <<<<<<< CONTENT
 new
@@ -446,7 +486,7 @@ def test_create_plan_records_root_identity(
         tmp_path,
         (
             "FILE: new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -475,7 +515,7 @@ def test_create_existing_parent_identity_is_recorded(
         tmp_path,
         (
             "FILE: existing/missing/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -521,7 +561,7 @@ def test_create_non_directory_parent_diagnostic_is_privacy_safe(
         lambda: plan_edit_text(
             tmp_path,
             (
-                "EDIT_SPEC_VERSION: 2\n\n"
+
                 "FILE: private-parent-marker/new.txt\n"
                 "LABEL: create under invalid parent\n"
                 "MODE: CREATE\n\n"
@@ -566,7 +606,7 @@ def test_create_symlink_parent_fails_closed(
         lambda: plan_edit_text(
             tmp_path,
             """FILE: linked/a.py
-EDIT: create-a
+LABEL: create-a
 MODE: CREATE
 <<<<<<< CONTENT
 new
@@ -592,7 +632,7 @@ def test_replace_file_preserves_existing_representation(
     plan = plan_edit_text(
         tmp_path,
         """FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 new
@@ -627,7 +667,7 @@ def test_replace_file_explicit_representation_can_change_file(
     plan = plan_edit_text(
         tmp_path,
         """FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 NEWLINE: LF
 FINAL_NEWLINE: YES
@@ -660,7 +700,7 @@ def test_replace_file_byte_identical_candidate_is_no_change(
         lambda: plan_edit_text(
             tmp_path,
             """FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 same
@@ -684,7 +724,7 @@ def test_replace_file_preserve_without_existing_newline_style_fails_for_multilin
         lambda: plan_edit_text(
             tmp_path,
             """FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 first
@@ -707,7 +747,7 @@ def test_replace_file_explicit_newline_can_expand_single_line_file(
     plan = plan_edit_text(
         tmp_path,
         """FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 NEWLINE: LF
 FINAL_NEWLINE: NO
@@ -734,12 +774,20 @@ def test_delete_builds_exact_delete_mutation(
         before,
     )
 
+    text = """FILE: src/obsolete.py
+LABEL: remove-obsolete
+MODE: DELETE
+"""
+
+    expected_ref = (
+        parse_edit_specification(
+            text
+        ).edits[0].edit_id
+    )
+
     plan = plan_edit_text(
         tmp_path,
-        """FILE: src/obsolete.py
-EDIT: remove-obsolete
-MODE: DELETE
-""",
+        text,
     )
     mutation = plan.files[0]
 
@@ -756,7 +804,7 @@ MODE: DELETE
     assert mutation.after_sha256 is None
     assert mutation.after_bytes is None
     assert mutation.edit_ids == (
-        "remove-obsolete",
+        expected_ref,
     )
     assert (
         tmp_path / "src/obsolete.py"
@@ -771,7 +819,7 @@ def test_delete_missing_target_fails_closed(
         lambda: plan_edit_text(
             tmp_path,
             """FILE: missing.py
-EDIT: remove-missing
+LABEL: remove-missing
 MODE: DELETE
 """,
         ),
@@ -791,14 +839,14 @@ def test_whole_file_and_partial_operations_can_share_bundle_across_targets(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 created()
 >>>>>>> CONTENT
 
 FILE: src/existing.py
-EDIT: update-existing
+LABEL: update-existing
 <<<<<<< SEARCH
 old()
 =======

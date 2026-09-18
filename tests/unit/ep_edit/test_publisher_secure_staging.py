@@ -17,8 +17,9 @@ def _create_spec(
     target: str,
 ) -> str:
     return (
+
+        "\n"
         f"FILE: {target}\n"
-        "EDIT: create-new\n"
         "MODE: CREATE\n"
         + "<" * 7
         + " CONTENT\n"

@@ -131,15 +131,11 @@ The important Clipboard rule is:
 The Clipboard is a mutable single transport slot. Copying another command
 replaces the previously copied Specification.
 
-## Edit Specification v2
+## Edit Specification
 
-Edit Specification v2 is recommended for new authoring.
+An Edit Specification begins directly with a `FILE:` block.
 
-It starts with:
-
-`EDIT_SPEC_VERSION: 2`
-
-Version 2 generates deterministic EditRefs instead of requiring the author
+`ep-edit` generates deterministic EditRefs instead of requiring the author
 to invent edit identifiers.
 
 An EditRef has the form:
@@ -148,8 +144,6 @@ An EditRef has the form:
 
 `LABEL:` is optional human-readable review context and is not part of edit
 identity.
-
-Edit Specification v1 remains supported for backward compatibility.
 
 Detailed syntax is documented in:
 
@@ -237,7 +231,7 @@ It does not modify the target project files.
 After revising a draft, rerun `check` and `preview`. A previous Preview is
 not authority for revised bytes.
 
-Revision Specification v2 uses deterministic EditRefs as selectors.
+Revision Specifications use deterministic EditRefs as selectors.
 
 ## Exit behavior
 
@@ -268,7 +262,7 @@ Specification reference rather than inferred from similarity diagnostics.
   - failed authoring recovery.
 
 - `docs/EDIT_SPECIFICATION.md`
-  - Edit Specification v1/v2;
+  - Edit Specification grammar;
   - whole-file operations;
   - deterministic EditRef;
   - Revision Specification;

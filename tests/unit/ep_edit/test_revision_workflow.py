@@ -16,10 +16,10 @@ from ep_edit.specification import parse_edit_specification
 pytestmark = pytest.mark.unit
 
 
-BASE_SPEC = """EDIT_SPEC_VERSION: 1
+BASE_SPEC = """
 
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -27,6 +27,12 @@ old_a()
 new_a()
 >>>>>>> REPLACE
 """
+
+BASE_REF = (
+    parse_edit_specification(
+        BASE_SPEC
+    ).edits[0].edit_id
+)
 
 
 def _assert_error(
@@ -58,13 +64,12 @@ def test_repeated_revision_across_separate_draft_runs(
         encoding="utf-8",
     )
 
-    first_revision = """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+    first_revision = f"""
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -74,13 +79,25 @@ better_a()
 >>>>>>> EDIT
 """
 
-    second_revision = """REVISION_SPEC_VERSION: 1
+    first_result = revise_draft_file(
+        draft,
+        first_revision,
+    )
 
-REVISE_EDIT: update-a
+    first_ref = (
+        parse_edit_specification(
+            draft.read_text(
+                encoding="utf-8"
+            )
+        ).edits[0].edit_id
+    )
+
+    second_revision = f"""
+REVISE_EDIT: {first_ref}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -90,10 +107,6 @@ best_a()
 >>>>>>> EDIT
 """
 
-    first_result = revise_draft_file(
-        draft,
-        first_revision,
-    )
     second_result = revise_draft_file(
         draft,
         second_revision,
@@ -101,11 +114,11 @@ best_a()
 
     assert (
         first_result.revised_edit_ids
-        == ("update-a",)
+        == (BASE_REF,)
     )
     assert (
         second_result.revised_edit_ids
-        == ("update-a",)
+        == (first_ref,)
     )
 
     parsed = parse_edit_specification(
@@ -123,13 +136,12 @@ best_a()
 def test_revision_may_change_file_target() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        f"""
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/renamed_target.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -149,21 +161,24 @@ new_a()
         == "src/renamed_target.py"
     )
     assert (
-        parsed.edits[0].edit_id
+        parsed.edits[0].label
         == "update-a"
+    )
+    assert (
+        result.revised_edit_ref_mappings[0][0]
+        == BASE_REF
     )
 
 
 def test_revision_may_change_search_only() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        f"""
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 older_a()
@@ -192,13 +207,12 @@ new_a()
 def test_revision_may_change_replace_only() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        f"""
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -228,13 +242,12 @@ def test_malformed_replacement_block_fails_closed() -> None:
     _assert_error(
         "REVISION_PARSE_ERROR",
         lambda: parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+            f"""
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()

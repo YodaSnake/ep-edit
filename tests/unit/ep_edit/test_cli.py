@@ -7,13 +7,15 @@ import pytest
 
 import ep_edit.cli as cli_module
 from ep_edit.cli import main
+from ep_edit.specification import parse_edit_specification
 
 
 pytestmark = pytest.mark.unit
 
 
-VALID_SPEC = """FILE: example.py
-EDIT: update-value
+VALID_SPEC = """
+
+FILE: example.py
 <<<<<<< SEARCH
 value = 1
 =======
@@ -626,8 +628,9 @@ def test_invalid_candidate_check_fails_validation(
     )
     specification = _write_spec(
         tmp_path,
-        """FILE: example.py
-EDIT: break-python
+        """
+
+FILE: example.py
 <<<<<<< SEARCH
 value = 1
 =======
@@ -666,18 +669,24 @@ def test_revise_updates_draft_only(
     specification = _write_spec(
         tmp_path
     )
+    base_ref = (
+        parse_edit_specification(
+            VALID_SPEC
+        )
+        .edits[0]
+        .edit_id
+    )
     revision = (
         tmp_path
         / "revision.txt"
     )
     revision.write_text(
-        """REVISION_SPEC_VERSION: 1
+        f"""
 
-REVISE_EDIT: update-value
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: example.py
-EDIT: update-value
 <<<<<<< SEARCH
 value = 1
 =======
@@ -719,7 +728,7 @@ value = 3
         not in output.getvalue()
     )
     assert (
-        "Revised edits: update-value"
+        f"Revised edits: {base_ref}"
         in output.getvalue()
     )
     assert (

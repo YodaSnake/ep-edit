@@ -17,7 +17,7 @@ _REPLACE_SEPARATOR = "=" * 7
 _REPLACE_CLOSE = ">" * 7 + " REPLACE"
 
 
-def test_v2_generated_edit_ref_flows_into_plan(
+def test_generated_edit_ref_flows_into_plan(
     tmp_path: Path,
 ) -> None:
     target = (
@@ -36,7 +36,7 @@ def test_v2_generated_edit_ref_flows_into_plan(
 
     plan = plan_edit_text(
         tmp_path,
-        f"""EDIT_SPEC_VERSION: 2
+        f"""
 
 FILE: src/a.py
 LABEL: update a

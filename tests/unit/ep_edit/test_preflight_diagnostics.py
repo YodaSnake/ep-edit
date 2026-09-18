@@ -31,8 +31,7 @@ def test_all_search_failures_on_target_are_collected(
         encoding="utf-8",
     )
 
-    specification = f"""EDIT_SPEC_VERSION: 2
-
+    specification = f"""
 FILE: example.py
 LABEL: first zero
 
@@ -109,8 +108,7 @@ def test_failure_on_one_target_does_not_hide_later_target(
         encoding="utf-8",
     )
 
-    specification = f"""EDIT_SPEC_VERSION: 2
-
+    specification = f"""
 FILE: a.py
 LABEL: zero match
 
@@ -173,8 +171,7 @@ def test_single_preflight_failure_preserves_error_code(
     ) as raised:
         plan_edit_text(
             tmp_path,
-            f"""EDIT_SPEC_VERSION: 2
-
+            f"""
 FILE: example.py
 LABEL: single
 
@@ -203,8 +200,7 @@ def test_parse_failure_remains_fail_fast(
     ) as raised:
         plan_edit_text(
             tmp_path,
-            f"""EDIT_SPEC_VERSION: 2
-
+            f"""
 THIS IS NOT A FILE BLOCK
 """,
         )
@@ -232,8 +228,7 @@ def test_cli_check_renders_all_preflight_failures(
         tmp_path / "edits.txt"
     )
     specification_path.write_text(
-        f"""EDIT_SPEC_VERSION: 2
-
+        f"""
 FILE: example.py
 LABEL: first problem
 
@@ -304,8 +299,7 @@ def test_cli_apply_preflight_failure_never_requests_approval(
         tmp_path / "edits.txt"
     )
     specification_path.write_text(
-        f"""EDIT_SPEC_VERSION: 2
-
+        f"""
 FILE: example.py
 LABEL: cannot apply
 

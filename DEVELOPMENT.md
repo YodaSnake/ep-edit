@@ -79,7 +79,6 @@ that as an explicit standalone product decision and test it independently.
 
 The package top level currently exports:
 
-- `EDIT_SPEC_VERSION`;
 - `DeterministicEditError`;
 - `EditSpecification`;
 - `NewlineStyle`;
@@ -142,8 +141,8 @@ That suite is the primary behavioral test corpus for `ep-edit`.
 It covers areas including:
 
 - CLI behavior;
-- Edit Specification v1 and v2;
-- Revision Specification v1 and v2;
+- Edit Specification grammar;
+- Revision Specification grammar;
 - planning;
 - Preview;
 - validation;

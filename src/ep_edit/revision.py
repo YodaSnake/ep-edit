@@ -4,16 +4,17 @@ import hashlib
 from dataclasses import dataclass
 from enum import Enum
 
+from ep_edit.edit_ref import (
+    is_generated_edit_ref,
+)
 from ep_edit.errors import DeterministicEditError
-from ep_edit.specification import parse_edit_specification
+from ep_edit.specification import (
+    parse_edit_specification,
+)
 from ep_edit.structural_escape import (
     REVISION_EDIT_PAYLOAD_MARKERS,
     decode_structural_payload_line,
 )
-
-
-REVISION_SPEC_VERSION = 1
-REVISION_SPEC_VERSION_V2 = 2
 
 
 class RevisionOperationKind(str, Enum):
@@ -32,7 +33,6 @@ class RevisionOperation:
 
 @dataclass(frozen=True)
 class RevisionSpecification:
-    version: int
     operations: tuple[RevisionOperation, ...]
 
 
@@ -69,54 +69,11 @@ def parse_revision_specification(
         0,
     )
 
-    if (
-        index >= len(lines)
-        or not lines[index].startswith(
-            "REVISION_SPEC_VERSION:"
-        )
-    ):
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            "REVISION_SPEC_VERSION: 1 is required",
-        )
-
-    raw_version = (
-        lines[index]
-        .partition(":")[2]
-        .strip()
-    )
-
-    try:
-        version = int(
-            raw_version
-        )
-    except ValueError as exc:
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            "REVISION_SPEC_VERSION must be an integer",
-        ) from exc
-
-    if version == REVISION_SPEC_VERSION_V2:
-        from ep_edit.revision_v2 import (
-            parse_v2_revision_specification,
-        )
-
-        return parse_v2_revision_specification(
-            text
-        )
-
-    if version != REVISION_SPEC_VERSION:
-        raise DeterministicEditError(
-            "UNSUPPORTED_REVISION_SPEC_VERSION",
-            (
-                "unsupported "
-                f"REVISION_SPEC_VERSION: {version}"
-            ),
-        )
-
-    index += 1
-    operations: list[RevisionOperation] = []
-    targeted_ids: set[str] = set()
+    operations: list[
+        RevisionOperation
+    ] = []
+    targeted_refs: set[str] = set()
+    added_refs: set[str] = set()
 
     while True:
         index = _skip_blank_lines(
@@ -142,123 +99,114 @@ def parse_revision_specification(
                 ),
             )
 
-        edit_id = (
+        raw_selector = (
             operation_line
             .partition(":")[2]
             .strip()
         )
-
-        if not edit_id:
-            raise DeterministicEditError(
-                "REVISION_PARSE_ERROR",
-                (
-                    f"{kind.value} requires "
-                    "a non-empty EDIT id"
-                ),
-            )
-
-        if edit_id in targeted_ids:
-            raise DeterministicEditError(
-                "REVISION_DUPLICATE_TARGET",
-                (
-                    "same EDIT id targeted "
-                    f"more than once: {edit_id}"
-                ),
-            )
-
-        targeted_ids.add(
-            edit_id
-        )
         index += 1
 
-        if kind is RevisionOperationKind.REMOVE:
+        if kind is RevisionOperationKind.ADD:
+            if raw_selector:
+                raise DeterministicEditError(
+                    "REVISION_PARSE_ERROR",
+                    (
+                        "ADD_EDIT must not contain "
+                        "an authored identifier"
+                    ),
+                )
+
+            edit_block, index = (
+                _read_edit_block(
+                    lines,
+                    index,
+                    kind=kind,
+                )
+            )
+            added_ref = (
+                _embedded_edit_ref(
+                    edit_block
+                )
+            )
+
+            if added_ref in added_refs:
+                raise DeterministicEditError(
+                    "REVISION_DUPLICATE_TARGET",
+                    (
+                        "same generated EditRef "
+                        "added more than once: "
+                        f"{added_ref}"
+                    ),
+                )
+
+            added_refs.add(
+                added_ref
+            )
             operations.append(
                 RevisionOperation(
                     kind=kind,
-                    edit_id=edit_id,
+                    edit_id=added_ref,
+                    edit_block=edit_block,
+                    replacement_edit_id=(
+                        added_ref
+                    ),
+                )
+            )
+            continue
+
+        selector = _require_edit_ref(
+            raw_selector,
+            kind=kind,
+        )
+
+        if selector in targeted_refs:
+            raise DeterministicEditError(
+                "REVISION_DUPLICATE_TARGET",
+                (
+                    "same EditRef targeted "
+                    f"more than once: {selector}"
+                ),
+            )
+
+        targeted_refs.add(
+            selector
+        )
+
+        if (
+            kind
+            is RevisionOperationKind.REMOVE
+        ):
+            operations.append(
+                RevisionOperation(
+                    kind=kind,
+                    edit_id=selector,
                     edit_block=None,
                 )
             )
             continue
 
-        index = _skip_blank_lines(
-            lines,
-            index,
+        edit_block, index = (
+            _read_edit_block(
+                lines,
+                index,
+                kind=kind,
+            )
         )
-
-        if (
-            index >= len(lines)
-            or lines[index] != "<<<<<<< EDIT"
-        ):
-            raise DeterministicEditError(
-                "REVISION_PARSE_ERROR",
-                (
-                    f"{kind.value} {edit_id!r} "
-                    "must contain <<<<<<< EDIT"
-                ),
+        replacement_ref = (
+            _embedded_edit_ref(
+                edit_block
             )
-
-        index += 1
-        block_lines: list[str] = []
-
-        while (
-            index < len(lines)
-            and lines[index] != ">>>>>>> EDIT"
-        ):
-            block_lines.append(
-                decode_structural_payload_line(
-                    lines[index],
-                    markers=(
-                        REVISION_EDIT_PAYLOAD_MARKERS
-                    ),
-                )
-            )
-            index += 1
-
-        if index >= len(lines):
-            raise DeterministicEditError(
-                "REVISION_PARSE_ERROR",
-                (
-                    f"{kind.value} {edit_id!r} "
-                    "is missing >>>>>>> EDIT"
-                ),
-            )
-
-        edit_block = "\n".join(
-            block_lines
         )
-
-        if not edit_block.strip():
-            raise DeterministicEditError(
-                "REVISION_PARSE_ERROR",
-                (
-                    f"{kind.value} {edit_id!r} "
-                    "contains an empty EDIT block"
-                ),
-            )
-
-        embedded_id = _validate_embedded_edit_block(
-            edit_block
-        )
-
-        if embedded_id != edit_id:
-            raise DeterministicEditError(
-                "REVISION_EDIT_ID_MISMATCH",
-                (
-                    f"{kind.value} id {edit_id!r} "
-                    "does not match embedded "
-                    f"EDIT id {embedded_id!r}"
-                ),
-            )
-
         operations.append(
             RevisionOperation(
                 kind=kind,
-                edit_id=edit_id,
+                edit_id=selector,
                 edit_block=edit_block,
+                replacement_edit_id=(
+                    replacement_ref
+                ),
             )
         )
-        index += 1
 
     if not operations:
         raise DeterministicEditError(
@@ -270,11 +218,141 @@ def parse_revision_specification(
         )
 
     return RevisionSpecification(
-        version=version,
         operations=tuple(
             operations
         ),
     )
+
+
+def _read_edit_block(
+    lines: list[str],
+    index: int,
+    *,
+    kind: RevisionOperationKind,
+) -> tuple[str, int]:
+    index = _skip_blank_lines(
+        lines,
+        index,
+    )
+
+    if (
+        index >= len(lines)
+        or lines[index]
+        != "<<<<<<< EDIT"
+    ):
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                f"{kind.value} must contain "
+                "<<<<<<< EDIT"
+            ),
+        )
+
+    index += 1
+    block_lines: list[str] = []
+
+    while (
+        index < len(lines)
+        and lines[index]
+        != ">>>>>>> EDIT"
+    ):
+        block_lines.append(
+            decode_structural_payload_line(
+                lines[index],
+                markers=(
+                    REVISION_EDIT_PAYLOAD_MARKERS
+                ),
+            )
+        )
+        index += 1
+
+    if index >= len(lines):
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                f"{kind.value} is missing "
+                ">>>>>>> EDIT"
+            ),
+        )
+
+    edit_block = "\n".join(
+        block_lines
+    )
+
+    if not edit_block.strip():
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                f"{kind.value} contains "
+                "an empty EDIT block"
+            ),
+        )
+
+    return edit_block, index + 1
+
+
+def _embedded_edit_ref(
+    edit_block: str,
+) -> str:
+    try:
+        specification = (
+            parse_edit_specification(
+                edit_block
+            )
+        )
+    except DeterministicEditError as exc:
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                "embedded EDIT block "
+                f"is invalid: {exc}"
+            ),
+        ) from exc
+
+    if len(
+        specification.edits
+    ) != 1:
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                "embedded EDIT block "
+                "must contain exactly one edit"
+            ),
+        )
+
+    return (
+        specification
+        .edits[0]
+        .edit_id
+    )
+
+
+def _require_edit_ref(
+    value: str,
+    *,
+    kind: RevisionOperationKind,
+) -> str:
+    if not value:
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                f"{kind.value} requires "
+                "an EditRef selector"
+            ),
+        )
+
+    if not is_generated_edit_ref(
+        value
+    ):
+        raise DeterministicEditError(
+            "REVISION_PARSE_ERROR",
+            (
+                f"{kind.value} selector must "
+                "be a generated EditRef"
+            ),
+        )
+
+    return value
 
 
 def revise_edit_specification(
@@ -302,19 +380,6 @@ def revise_edit_specification(
         )
     )
 
-    if (
-        revision.version
-        != base_specification.version
-    ):
-        raise DeterministicEditError(
-            "REVISION_VERSION_MISMATCH",
-            (
-                "base Edit Specification version "
-                f"{base_specification.version} requires "
-                "the same Revision Specification version"
-            ),
-        )
-
     ordered_base_ids = tuple(
         edit.edit_id
         for edit in base_specification.edits
@@ -322,7 +387,6 @@ def revise_edit_specification(
 
     base_blocks = _locate_base_edit_blocks(
         base_text,
-        version=base_specification.version,
         edit_ids=ordered_base_ids,
     )
 
@@ -460,10 +524,8 @@ def revise_edit_specification(
         )
 
     try:
-        revised_specification = (
-            parse_edit_specification(
-                revised_text
-            )
+        parse_edit_specification(
+            revised_text
         )
     except DeterministicEditError as exc:
         raise DeterministicEditError(
@@ -474,59 +536,41 @@ def revise_edit_specification(
             ),
         ) from exc
 
-    if (
-        revised_specification.version
-        != base_specification.version
-    ):
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            (
-                "revision changed the Edit "
-                "Specification version"
-            ),
-        )
+    mappings: list[
+        tuple[str, str]
+    ] = []
 
-    revised_edit_ref_mappings: tuple[
-        tuple[str, str],
-        ...
-    ] = ()
+    for operation in revision.operations:
+        if (
+            operation.kind
+            is not RevisionOperationKind.REVISE
+        ):
+            continue
 
-    if base_specification.version == 2:
-        mappings: list[
-            tuple[str, str]
-        ] = []
-
-        for operation in revision.operations:
-            if (
-                operation.kind
-                is not RevisionOperationKind.REVISE
-            ):
-                continue
-
-            if (
-                operation.replacement_edit_id
-                is None
-            ):
-                raise DeterministicEditError(
-                    "REVISION_PARSE_ERROR",
-                    (
-                        "v2 REVISE_EDIT is missing "
-                        "its replacement EditRef"
-                    ),
-                )
-
-            mappings.append(
+        if (
+            operation.replacement_edit_id
+            is None
+        ):
+            raise DeterministicEditError(
+                "REVISION_PARSE_ERROR",
                 (
-                    operation.edit_id,
-                    operation.replacement_edit_id,
-                )
+                    "REVISE_EDIT is missing "
+                    "its replacement EditRef"
+                ),
             )
 
-        revised_edit_ref_mappings = tuple(
-            sorted(
-                mappings
+        mappings.append(
+            (
+                operation.edit_id,
+                operation.replacement_edit_id,
             )
         )
+
+    revised_edit_ref_mappings = tuple(
+        sorted(
+            mappings
+        )
+    )
 
     revised_ids = tuple(
         sorted(
@@ -588,59 +632,10 @@ def _parse_operation_kind(
     return None
 
 
-def _validate_embedded_edit_block(
-    edit_block: str,
-) -> str:
-    lines = edit_block.splitlines()
-    index = _skip_blank_lines(
-        lines,
-        0,
-    )
-
-    if (
-        index >= len(lines)
-        or not lines[index].startswith(
-            "FILE:"
-        )
-    ):
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            (
-                "embedded EDIT block must "
-                "begin with FILE"
-            ),
-        )
-
-    try:
-        parsed = parse_edit_specification(
-            edit_block
-        )
-    except DeterministicEditError as exc:
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            (
-                "embedded EDIT block "
-                f"is invalid: {exc}"
-            ),
-        ) from exc
-
-    if len(parsed.edits) != 1:
-        raise DeterministicEditError(
-            "REVISION_PARSE_ERROR",
-            (
-                "embedded EDIT block must "
-                "contain exactly one edit"
-            ),
-        )
-
-    return parsed.edits[0].edit_id
-
-
 def _locate_base_edit_blocks(
     text: str,
     *,
-    version: int = 1,
-    edit_ids: tuple[str, ...] | None = None,
+    edit_ids: tuple[str, ...],
 ) -> tuple[_BaseEditBlock, ...]:
     raw_lines = text.splitlines(
         keepends=True
@@ -664,14 +659,6 @@ def _locate_base_edit_blocks(
         logical_lines,
         0,
     )
-
-    if (
-        index < len(logical_lines)
-        and logical_lines[index].startswith(
-            "EDIT_SPEC_VERSION:"
-        )
-    ):
-        index += 1
 
     blocks: list[_BaseEditBlock] = []
     block_position = 0
@@ -704,106 +691,34 @@ def _locate_base_edit_blocks(
             index,
         )
 
-        expected_edit_id: str | None = None
-
-        if edit_ids is not None:
-            if block_position >= len(
-                edit_ids
-            ):
-                raise DeterministicEditError(
-                    "REVISION_PARSE_ERROR",
-                    (
-                        "base Edit Specification "
-                        "contains more raw edit blocks "
-                        "than parsed edits"
-                    ),
-                )
-
-            expected_edit_id = edit_ids[
-                block_position
-            ]
-
-        if version == 1:
-            if (
-                index >= len(logical_lines)
-                or not logical_lines[
-                    index
-                ].startswith(
-                    "EDIT:"
-                )
-            ):
-                raise DeterministicEditError(
-                    "REVISION_PARSE_ERROR",
-                    (
-                        "could not locate base "
-                        "EDIT identity"
-                    ),
-                )
-
-            raw_edit_id = (
-                logical_lines[index]
-                .partition(":")[2]
-                .strip()
+        if block_position >= len(
+            edit_ids
+        ):
+            raise DeterministicEditError(
+                "REVISION_PARSE_ERROR",
+                (
+                    "base Edit Specification "
+                    "contains more raw edit blocks "
+                    "than parsed edits"
+                ),
             )
 
-            if (
-                expected_edit_id is not None
-                and raw_edit_id
-                != expected_edit_id
-            ):
-                raise DeterministicEditError(
-                    "REVISION_PARSE_ERROR",
-                    (
-                        "base Edit Specification "
-                        "raw EDIT identity disagrees "
-                        "with parsed identity"
-                    ),
-                )
+        edit_id = edit_ids[
+            block_position
+        ]
 
-            edit_id = (
-                expected_edit_id
-                or raw_edit_id
+        if (
+            index < len(logical_lines)
+            and logical_lines[
+                index
+            ].startswith(
+                "LABEL:"
             )
-
+        ):
             index += 1
             index = _skip_blank_lines(
                 logical_lines,
                 index,
-            )
-
-        elif version == 2:
-            if expected_edit_id is None:
-                raise DeterministicEditError(
-                    "REVISION_PARSE_ERROR",
-                    (
-                        "v2 base block location "
-                        "requires parsed EditRefs"
-                    ),
-                )
-
-            edit_id = expected_edit_id
-
-            if (
-                index < len(logical_lines)
-                and logical_lines[
-                    index
-                ].startswith(
-                    "LABEL:"
-                )
-            ):
-                index += 1
-                index = _skip_blank_lines(
-                    logical_lines,
-                    index,
-                )
-
-        else:
-            raise DeterministicEditError(
-                "REVISION_PARSE_ERROR",
-                (
-                    "unsupported base Edit "
-                    f"Specification version: {version}"
-                ),
             )
 
         if index >= len(logical_lines):
@@ -870,8 +785,7 @@ def _locate_base_edit_blocks(
         block_position += 1
 
     if (
-        edit_ids is not None
-        and block_position
+        block_position
         != len(edit_ids)
     ):
         raise DeterministicEditError(

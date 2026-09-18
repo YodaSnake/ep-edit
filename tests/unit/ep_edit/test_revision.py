@@ -16,10 +16,10 @@ from ep_edit.specification import (
 pytestmark = pytest.mark.unit
 
 
-BASE_SPEC = """EDIT_SPEC_VERSION: 1
+BASE_SPEC = """
 
 FILE: src/a.py
-EDIT: keep-a
+LABEL: keep-a
 
 <<<<<<< SEARCH
 # keep-a
@@ -30,7 +30,7 @@ new_a()
 >>>>>>> REPLACE
 
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -39,7 +39,7 @@ new_b()
 >>>>>>> REPLACE
 
 FILE: tests/test_a.py
-EDIT: remove-test
+LABEL: remove-test
 
 <<<<<<< SEARCH
 old_test()
@@ -47,6 +47,46 @@ old_test()
 new_test()
 >>>>>>> REPLACE
 """
+
+
+def _base_refs() -> tuple[
+    str,
+    str,
+    str,
+]:
+    parsed = parse_edit_specification(
+        BASE_SPEC
+    )
+
+    return tuple(
+        edit.edit_id
+        for edit in parsed.edits
+    )
+
+
+KEEP_REF, REVISE_REF, REMOVE_REF = (
+    _base_refs()
+)
+
+
+MISSING_SPEC = """
+
+FILE: src/missing.py
+LABEL: missing
+
+<<<<<<< SEARCH
+old()
+=======
+new()
+>>>>>>> REPLACE
+"""
+
+
+MISSING_REF = (
+    parse_edit_specification(
+        MISSING_SPEC
+    ).edits[0].edit_id
+)
 
 
 def _assert_error(
@@ -66,16 +106,14 @@ def _assert_error(
     return raised.value
 
 
-def test_parse_revise_edit() -> None:
-    revision = (
-        parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
+def test_parse_revision_operation_kinds() -> None:
+    revision = parse_revision_specification(
+        f"""
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -83,166 +121,50 @@ old_b()
 better_b()
 >>>>>>> REPLACE
 >>>>>>> EDIT
+
+REMOVE_EDIT: {REMOVE_REF}
+
+ADD_EDIT:
+
+<<<<<<< EDIT
+FILE: src/c.py
+LABEL: add-c
+
+<<<<<<< SEARCH
+old_c()
+=======
+new_c()
+>>>>>>> REPLACE
+>>>>>>> EDIT
 """
-        )
     )
 
-    assert revision.version == 1
-    assert len(
-        revision.operations
-    ) == 1
-    assert (
-        revision.operations[0].kind
-        is RevisionOperationKind.REVISE
-    )
+    assert [
+        operation.kind
+        for operation in revision.operations
+    ] == [
+        RevisionOperationKind.REVISE,
+        RevisionOperationKind.REMOVE,
+        RevisionOperationKind.ADD,
+    ]
     assert (
         revision.operations[0].edit_id
-        == "revise-b"
-    )
-
-
-def test_parse_remove_edit() -> None:
-    revision = (
-        parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: remove-test
-"""
-        )
-    )
-
-    assert (
-        revision.operations[0].kind
-        is RevisionOperationKind.REMOVE
+        == REVISE_REF
     )
     assert (
-        revision.operations[0].edit_block
+        revision.operations[1].edit_block
         is None
     )
-
-
-def test_parse_add_edit() -> None:
-    revision = (
-        parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: add-test
-
-<<<<<<< EDIT
-FILE: tests/test_b.py
-EDIT: add-test
-
-<<<<<<< SEARCH
-old()
-=======
-new()
->>>>>>> REPLACE
->>>>>>> EDIT
-"""
-        )
-    )
-
     assert (
-        revision.operations[0].kind
-        is RevisionOperationKind.ADD
-    )
-
-
-def test_revision_requires_explicit_version() -> None:
-    _assert_error(
-        "REVISION_PARSE_ERROR",
-        lambda: parse_revision_specification(
-            "REMOVE_EDIT: remove-test\n"
-        ),
-    )
-
-
-def test_unknown_revision_version_fails_closed() -> None:
-    _assert_error(
-        "UNSUPPORTED_REVISION_SPEC_VERSION",
-        lambda: parse_revision_specification(
-            """REVISION_SPEC_VERSION: 3
-
-REMOVE_EDIT: remove-test
-"""
-        ),
-    )
-
-
-def test_duplicate_revision_target_fails_closed() -> None:
-    _assert_error(
-        "REVISION_DUPLICATE_TARGET",
-        lambda: parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
-
-<<<<<<< EDIT
-FILE: src/b.py
-EDIT: revise-b
-
-<<<<<<< SEARCH
-old_b()
-=======
-better_b()
->>>>>>> REPLACE
->>>>>>> EDIT
-
-REMOVE_EDIT: revise-b
-"""
-        ),
-    )
-
-
-def test_revise_edit_id_must_match_embedded_id() -> None:
-    _assert_error(
-        "REVISION_EDIT_ID_MISMATCH",
-        lambda: parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
-
-<<<<<<< EDIT
-FILE: src/b.py
-EDIT: other-id
-
-<<<<<<< SEARCH
-old_b()
-=======
-better_b()
->>>>>>> REPLACE
->>>>>>> EDIT
-"""
-        ),
-    )
-
-
-def test_add_edit_id_must_match_embedded_id() -> None:
-    _assert_error(
-        "REVISION_EDIT_ID_MISMATCH",
-        lambda: parse_revision_specification(
-            """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: add-test
-
-<<<<<<< EDIT
-FILE: tests/test_b.py
-EDIT: other-id
-
-<<<<<<< SEARCH
-old()
-=======
-new()
->>>>>>> REPLACE
->>>>>>> EDIT
-"""
-        ),
+        revision.operations[2]
+        .edit_id
+        .startswith("e_")
     )
 
 
 def test_revise_preserves_keep_block_exactly() -> None:
     keep_block = """FILE: src/a.py
-EDIT: keep-a
+LABEL: keep-a
 
 <<<<<<< SEARCH
 # keep-a
@@ -255,13 +177,12 @@ new_a()
 
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
+        f"""
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -276,24 +197,17 @@ better_b()
     assert "better_b()" in result.revised_text
     assert (
         result.revised_edit_ids
-        == ("revise-b",)
+        == (REVISE_REF,)
     )
-    assert (
-        result.removed_edit_ids
-        == ()
-    )
-    assert (
-        result.added_edit_ids
-        == ()
-    )
+    assert result.removed_edit_ids == ()
+    assert result.added_edit_ids == ()
 
 
 def test_remove_edit_removes_whole_edit_block() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: remove-test
+        f"""
+REMOVE_EDIT: {REMOVE_REF}
 """,
     )
 
@@ -302,14 +216,18 @@ REMOVE_EDIT: remove-test
     )
 
     assert [
-        edit.edit_id
+        edit.target
         for edit in parsed.edits
     ] == [
-        "keep-a",
-        "revise-b",
+        "src/a.py",
+        "src/b.py",
     ]
     assert (
-        "EDIT: remove-test"
+        result.removed_edit_ids
+        == (REMOVE_REF,)
+    )
+    assert (
+        "LABEL: remove-test"
         not in result.revised_text
     )
 
@@ -317,13 +235,12 @@ REMOVE_EDIT: remove-test
 def test_add_edit_appends_valid_edit() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: add-test
+        """
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: tests/test_b.py
-EDIT: add-test
+LABEL: add-test
 
 <<<<<<< SEARCH
 old()
@@ -339,17 +256,20 @@ new()
     )
 
     assert [
-        edit.edit_id
+        edit.target
         for edit in parsed.edits
     ] == [
-        "keep-a",
-        "revise-b",
-        "remove-test",
-        "add-test",
+        "src/a.py",
+        "src/b.py",
+        "tests/test_a.py",
+        "tests/test_b.py",
     ]
-    assert (
+    assert len(
         result.added_edit_ids
-        == ("add-test",)
+    ) == 1
+    assert (
+        result.added_edit_ids[0]
+        == parsed.edits[-1].edit_id
     )
 
 
@@ -358,18 +278,17 @@ def test_missing_revise_target_fails_closed() -> None:
         "REVISION_EDIT_NOT_FOUND",
         lambda: revise_edit_specification(
             BASE_SPEC,
-            """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: missing
+            f"""
+REVISE_EDIT: {MISSING_REF}
 
 <<<<<<< EDIT
 FILE: src/missing.py
-EDIT: missing
+LABEL: missing
 
 <<<<<<< SEARCH
 old()
 =======
-new()
+better()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 """,
@@ -382,9 +301,8 @@ def test_missing_remove_target_fails_closed() -> None:
         "REVISION_EDIT_NOT_FOUND",
         lambda: revise_edit_specification(
             BASE_SPEC,
-            """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: missing
+            f"""
+REMOVE_EDIT: {MISSING_REF}
 """,
         ),
     )
@@ -395,18 +313,19 @@ def test_add_existing_edit_fails_closed() -> None:
         "REVISION_EDIT_ALREADY_EXISTS",
         lambda: revise_edit_specification(
             BASE_SPEC,
-            """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: keep-a
+            """
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: keep-a
+LABEL: duplicate-keep
 
 <<<<<<< SEARCH
-old()
+# keep-a
+old_a()
 =======
-new()
+# keep-a
+new_a()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 """,
@@ -415,8 +334,10 @@ new()
 
 
 def test_removing_only_edit_fails_reparse() -> None:
-    base = """FILE: src/a.py
-EDIT: only
+    base = """
+
+FILE: src/a.py
+LABEL: only
 
 <<<<<<< SEARCH
 old()
@@ -424,27 +345,30 @@ old()
 new()
 >>>>>>> REPLACE
 """
+    only_ref = (
+        parse_edit_specification(
+            base
+        ).edits[0].edit_id
+    )
 
     _assert_error(
         "REVISION_PARSE_ERROR",
         lambda: revise_edit_specification(
             base,
-            """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: only
+            f"""
+REMOVE_EDIT: {only_ref}
 """,
         ),
     )
 
 
 def test_revision_batch_order_does_not_change_output() -> None:
-    revision_a = """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
+    revision_a = f"""
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -453,13 +377,13 @@ better_b()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 
-REMOVE_EDIT: remove-test
+REMOVE_EDIT: {REMOVE_REF}
 
-ADD_EDIT: add-z
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/z.py
-EDIT: add-z
+LABEL: add-z
 
 <<<<<<< SEARCH
 old_z()
@@ -468,11 +392,11 @@ new_z()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 
-ADD_EDIT: add-a
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/new_a.py
-EDIT: add-a
+LABEL: add-a
 
 <<<<<<< SEARCH
 old_new_a()
@@ -482,13 +406,12 @@ new_new_a()
 >>>>>>> EDIT
 """
 
-    revision_b = """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: add-a
+    revision_b = f"""
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/new_a.py
-EDIT: add-a
+LABEL: add-a
 
 <<<<<<< SEARCH
 old_new_a()
@@ -497,11 +420,11 @@ new_new_a()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 
-ADD_EDIT: add-z
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/z.py
-EDIT: add-z
+LABEL: add-z
 
 <<<<<<< SEARCH
 old_z()
@@ -510,13 +433,13 @@ new_z()
 >>>>>>> REPLACE
 >>>>>>> EDIT
 
-REMOVE_EDIT: remove-test
+REMOVE_EDIT: {REMOVE_REF}
 
-REVISE_EDIT: revise-b
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -553,13 +476,12 @@ def test_crlf_base_keeps_crlf_for_revised_block() -> None:
 
     result = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
+        f"""
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()
@@ -580,13 +502,12 @@ better_b()
 def test_revision_fingerprint_changes_with_content() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: revise-b
+        f"""
+REVISE_EDIT: {REVISE_REF}
 
 <<<<<<< EDIT
 FILE: src/b.py
-EDIT: revise-b
+LABEL: revise-b
 
 <<<<<<< SEARCH
 old_b()

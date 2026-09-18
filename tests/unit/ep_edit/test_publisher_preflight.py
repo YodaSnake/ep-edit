@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from ep_edit.errors import DeterministicEditError
-from ep_edit.planner import plan_edit_text
+from ep_edit.planner import plan_edit_text as _plan_edit_text
 from ep_edit.publisher import (
     revalidate_publication_preconditions,
     revalidate_target_mutation,
@@ -13,6 +13,22 @@ from ep_edit.publisher import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _write(
@@ -48,14 +64,16 @@ def _assert_error(
 
 
 def _replace_spec() -> str:
-    return """FILE: example.py
-EDIT: update-value
+    return _current_spec(
+        """FILE: example.py
+LABEL: update-value
 <<<<<<< SEARCH
 value = 1
 =======
 value = 2
 >>>>>>> REPLACE
 """
+    )
 
 
 def test_immutable_input_skips_specification_revalidation(
@@ -363,7 +381,7 @@ def test_create_target_still_absent_passes(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 value = 1
@@ -390,7 +408,7 @@ def test_root_directory_replacement_is_stale(
         tmp_path,
         (
             "FILE: missing/new.py\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -431,7 +449,7 @@ def test_create_missing_parent_chain_remains_absent_during_preflight(
         tmp_path,
         (
             "FILE: missing/deep/new.py\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -465,7 +483,7 @@ def test_existing_create_parent_directory_replacement_is_stale(
         tmp_path,
         (
             "FILE: existing/missing/new.py\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -506,7 +524,7 @@ def test_planned_missing_create_parent_appearing_is_stale(
         tmp_path,
         (
             "FILE: missing/deep/new.py\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -540,7 +558,7 @@ def test_create_target_reappears_after_preview_is_stale(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 value = 1
@@ -579,7 +597,7 @@ def test_create_parent_removed_after_preview_is_stale(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 value = 1
@@ -609,7 +627,7 @@ def test_delete_target_exact_bytes_remain_current(
     plan = plan_edit_text(
         tmp_path,
         """FILE: obsolete.txt
-EDIT: delete-obsolete
+LABEL: delete-obsolete
 MODE: DELETE
 """,
     )
@@ -634,7 +652,7 @@ def test_delete_target_missing_after_preview_is_stale(
     plan = plan_edit_text(
         tmp_path,
         """FILE: obsolete.txt
-EDIT: delete-obsolete
+LABEL: delete-obsolete
 MODE: DELETE
 """,
     )
@@ -661,7 +679,7 @@ def test_delete_target_byte_drift_is_stale(
     plan = plan_edit_text(
         tmp_path,
         """FILE: obsolete.txt
-EDIT: delete-obsolete
+LABEL: delete-obsolete
 MODE: DELETE
 """,
     )
@@ -738,7 +756,7 @@ def test_multi_file_global_revalidation_fails_before_any_write(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -746,7 +764,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======

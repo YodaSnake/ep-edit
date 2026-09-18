@@ -11,15 +11,16 @@ from ep_edit.draft import (
     revise_draft_file,
 )
 from ep_edit.errors import DeterministicEditError
+from ep_edit.specification import parse_edit_specification
 
 
 pytestmark = pytest.mark.unit
 
 
-BASE_SPEC = """EDIT_SPEC_VERSION: 1
+BASE_SPEC = """
 
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -28,14 +29,20 @@ new_a()
 >>>>>>> REPLACE
 """
 
+BASE_REF = (
+    parse_edit_specification(
+        BASE_SPEC
+    ).edits[0].edit_id
+)
 
-REVISION = """REVISION_SPEC_VERSION: 1
 
-REVISE_EDIT: update-a
+REVISION = f"""
+
+REVISE_EDIT: {BASE_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -105,7 +112,7 @@ def test_revise_draft_file_replaces_only_draft(
     )
     assert (
         result.revised_edit_ids
-        == ("update-a",)
+        == (BASE_REF,)
     )
 
 

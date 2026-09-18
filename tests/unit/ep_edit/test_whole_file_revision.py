@@ -23,8 +23,25 @@ from ep_edit.specification import (
 pytestmark = pytest.mark.unit
 
 
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def _edit_refs(
+    text: str,
+) -> tuple[str, ...]:
+    return tuple(
+        edit.edit_id
+        for edit in parse_edit_specification(
+            _current_spec(text)
+        ).edits
+    )
+
+
 PARTIAL_BLOCK = """FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -35,7 +52,7 @@ new_a()
 
 
 WHOLE_CREATE_BLOCK = """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -44,12 +61,20 @@ created()
 """
 
 
-MIXED_BASE = (
-    "EDIT_SPEC_VERSION: 1\n"
-    "\n"
-    + WHOLE_CREATE_BLOCK
+PARTIAL_BASE = _current_spec(
+    PARTIAL_BLOCK
+)
+
+MIXED_BASE = _current_spec(
+    WHOLE_CREATE_BLOCK
     + "\n"
     + PARTIAL_BLOCK
+)
+
+CREATE_REF, PARTIAL_REF = (
+    _edit_refs(
+        MIXED_BASE
+    )
 )
 
 
@@ -73,13 +98,12 @@ def _assert_error(
 def test_keep_whole_file_block_is_preserved_exactly() -> None:
     result = revise_edit_specification(
         MIXED_BASE,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        f"""
+REVISE_EDIT: {PARTIAL_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -107,28 +131,32 @@ better_a()
     )
     assert (
         create_edit.edit_id
-        == "create-new"
+        == CREATE_REF
     )
 
 
 def test_revise_whole_file_to_whole_file() -> None:
-    base = """FILE: config/example.txt
-EDIT: replace-config
+    base = _current_spec(
+        """FILE: config/example.txt
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 old
 >>>>>>> CONTENT
 """
+    )
+    base_ref = _edit_refs(
+        base
+    )[0]
 
     result = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: replace-config
+        f"""
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 NEWLINE: LF
 FINAL_NEWLINE: NO
@@ -159,14 +187,13 @@ better
 
 def test_revise_partial_to_whole_file() -> None:
     result = revise_edit_specification(
-        PARTIAL_BLOCK,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        PARTIAL_BASE,
+        f"""
+REVISE_EDIT: {PARTIAL_REF}
 
 <<<<<<< EDIT
 FILE: src/new.py
-EDIT: update-a
+LABEL: update-a
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -184,7 +211,10 @@ created()
         edit,
         WholeFileEdit,
     )
-    assert edit.edit_id == "update-a"
+    assert (
+        result.revised_edit_ref_mappings[0][0]
+        == PARTIAL_REF
+    )
     assert edit.target == "src/new.py"
     assert (
         edit.mode
@@ -193,23 +223,27 @@ created()
 
 
 def test_revise_whole_file_to_partial() -> None:
-    base = """FILE: src/a.py
-EDIT: update-a
+    base = _current_spec(
+        """FILE: src/a.py
+LABEL: update-a
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 whole replacement
 >>>>>>> CONTENT
 """
+    )
+    base_ref = _edit_refs(
+        base
+    )[0]
 
     result = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: update-a
+        f"""
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -239,9 +273,8 @@ better_a()
 def test_remove_whole_file_edit() -> None:
     result = revise_edit_specification(
         MIXED_BASE,
-        """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: create-new
+        f"""
+REMOVE_EDIT: {CREATE_REF}
 """,
     )
 
@@ -253,7 +286,7 @@ REMOVE_EDIT: create-new
         edit.edit_id
         for edit in parsed.edits
     ] == [
-        "update-a",
+        PARTIAL_REF,
     ]
     assert (
         "MODE: CREATE"
@@ -263,14 +296,13 @@ REMOVE_EDIT: create-new
 
 def test_add_whole_file_edit() -> None:
     result = revise_edit_specification(
-        PARTIAL_BLOCK,
-        """REVISION_SPEC_VERSION: 1
-
-ADD_EDIT: create-new
+        PARTIAL_BASE,
+        """
+ADD_EDIT:
 
 <<<<<<< EDIT
 FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -288,8 +320,8 @@ created()
         edit.edit_id
         for edit in parsed.edits
     ] == [
-        "update-a",
-        "create-new",
+        PARTIAL_REF,
+        CREATE_REF,
     ]
     assert isinstance(
         parsed.edits[1],
@@ -311,13 +343,13 @@ def test_mixed_revision_is_fully_replanned(
 
     revised = revise_edit_specification(
         MIXED_BASE,
-        """REVISION_SPEC_VERSION: 1
+        f"""
 
-REVISE_EDIT: update-a
+REVISE_EDIT: {PARTIAL_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -371,13 +403,13 @@ def test_keep_create_is_revalidated_after_revision(
 
     revised = revise_edit_specification(
         MIXED_BASE,
-        """REVISION_SPEC_VERSION: 1
+        f"""
 
-REVISE_EDIT: update-a
+REVISE_EDIT: {PARTIAL_REF}
 
 <<<<<<< EDIT
 FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 
 <<<<<<< SEARCH
 old_a()
@@ -405,26 +437,30 @@ better_a()
 
 
 def test_crlf_whole_file_revision_keeps_draft_newlines() -> None:
-    base = """FILE: config/example.txt
-EDIT: replace-config
+    base = _current_spec(
+        """FILE: config/example.txt
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 old
 >>>>>>> CONTENT
-""".replace(
+"""
+    ).replace(
         "\n",
         "\r\n",
     )
+    base_ref = _edit_refs(
+        base
+    )[0]
 
     result = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: replace-config
+        f"""
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 better
@@ -445,19 +481,21 @@ better
 
 
 def test_delete_at_eof_without_final_newline_can_be_removed() -> None:
-    base = (
+    base = _current_spec(
         PARTIAL_BLOCK
         + "\n"
         + "FILE: src/obsolete.py\n"
-        + "EDIT: remove-obsolete\n"
+        + "LABEL: remove-obsolete\n"
         + "MODE: DELETE"
     )
+    remove_ref = _edit_refs(
+        base
+    )[1]
 
     result = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: remove-obsolete
+        f"""
+REMOVE_EDIT: {remove_ref}
 """,
     )
 
@@ -469,28 +507,32 @@ REMOVE_EDIT: remove-obsolete
         edit.edit_id
         for edit in parsed.edits
     ] == [
-        "update-a",
+        PARTIAL_REF,
     ]
 
 
 def test_whole_file_edit_can_be_revised_repeatedly() -> None:
-    base = """FILE: config/example.txt
-EDIT: replace-config
+    base = _current_spec(
+        """FILE: config/example.txt
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 first
 >>>>>>> CONTENT
 """
+    )
+    base_ref = _edit_refs(
+        base
+    )[0]
 
     first = revise_edit_specification(
         base,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: replace-config
+        f"""
+REVISE_EDIT: {base_ref}
 
 <<<<<<< EDIT
 FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 second
@@ -499,15 +541,20 @@ second
 """,
     )
 
+    first_ref = (
+        parse_edit_specification(
+            first.revised_text
+        ).edits[0].edit_id
+    )
+
     second = revise_edit_specification(
         first.revised_text,
-        """REVISION_SPEC_VERSION: 1
-
-REVISE_EDIT: replace-config
+        f"""
+REVISE_EDIT: {first_ref}
 
 <<<<<<< EDIT
 FILE: config/example.txt
-EDIT: replace-config
+LABEL: replace-config
 MODE: REPLACE_FILE
 <<<<<<< CONTENT
 third

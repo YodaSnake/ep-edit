@@ -25,7 +25,7 @@ _REPLACE_SEPARATOR = "=" * 7
 _REPLACE_CLOSE = ">" * 7 + " REPLACE"
 
 
-BASE_SPEC = f"""EDIT_SPEC_VERSION: 2
+BASE_SPEC = f"""
 
 FILE: src/a.py
 LABEL: original a
@@ -59,7 +59,7 @@ def _base_refs() -> tuple[str, str]:
     )
 
 
-def test_v2_base_refs_use_shared_edit_ref_contract() -> None:
+def test_base_refs_use_shared_edit_ref_contract() -> None:
     assert all(
         is_generated_edit_ref(
             edit_ref
@@ -81,13 +81,12 @@ def _assert_error(
     return raised.value
 
 
-def test_v2_revise_maps_old_ref_to_new_ref() -> None:
+def test_revise_maps_old_ref_to_new_ref() -> None:
     old_ref, _ = _base_refs()
 
     result = revise_edit_specification(
         BASE_SPEC,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 REVISE_EDIT: {old_ref}
 
 {_EDIT_OPEN}
@@ -131,9 +130,9 @@ better_a()
     )
 
 
-def test_v2_revision_preserves_url_uri_literals() -> None:
+def test_revision_preserves_url_uri_literals() -> None:
     base_spec = (
-        "EDIT_SPEC_VERSION: 2\n\n"
+
         "FILE: src/link.txt\n"
         "LABEL: original URL literal\n\n"
         f"{_SEARCH_OPEN}\n"
@@ -157,7 +156,6 @@ def test_v2_revision_preserves_url_uri_literals() -> None:
     result = revise_edit_specification(
         base_spec,
         (
-            "REVISION_SPEC_VERSION: 2\n\n"
             f"REVISE_EDIT: {old_ref}\n\n"
             f"{_EDIT_OPEN}\n"
             "FILE: src/link.txt\n"
@@ -200,13 +198,12 @@ def test_v2_revision_preserves_url_uri_literals() -> None:
     )
 
 
-def test_v2_label_only_revision_keeps_ref() -> None:
+def test_label_only_revision_keeps_ref() -> None:
     old_ref, _ = _base_refs()
 
     result = revise_edit_specification(
         BASE_SPEC,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 REVISE_EDIT: {old_ref}
 
 {_EDIT_OPEN}
@@ -237,13 +234,12 @@ new_a()
     )
 
 
-def test_v2_remove_uses_ref_selector() -> None:
+def test_remove_uses_ref_selector() -> None:
     _, remove_ref = _base_refs()
 
     result = revise_edit_specification(
         BASE_SPEC,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 REMOVE_EDIT: {remove_ref}
 """,
     )
@@ -263,11 +259,10 @@ REMOVE_EDIT: {remove_ref}
     )
 
 
-def test_v2_add_derives_identity_from_block() -> None:
+def test_add_derives_identity_from_block() -> None:
     result = revise_edit_specification(
         BASE_SPEC,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 ADD_EDIT:
 
 {_EDIT_OPEN}
@@ -300,13 +295,12 @@ new_c()
     )
 
 
-def test_v2_revision_may_change_target() -> None:
+def test_revision_may_change_target() -> None:
     old_ref, _ = _base_refs()
 
     result = revise_edit_specification(
         BASE_SPEC,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 REVISE_EDIT: {old_ref}
 
 {_EDIT_OPEN}
@@ -341,29 +335,14 @@ new_a()
     )
 
 
-def test_v2_version_mismatch_fails_closed() -> None:
-    old_ref, _ = _base_refs()
 
-    _assert_error(
-        "REVISION_VERSION_MISMATCH",
-        lambda: revise_edit_specification(
-            BASE_SPEC,
-            f"""REVISION_SPEC_VERSION: 1
-
-REMOVE_EDIT: {old_ref}
-""",
-        ),
-    )
-
-
-def test_v2_duplicate_selector_fails_closed() -> None:
+def test_duplicate_selector_fails_closed() -> None:
     old_ref, _ = _base_refs()
 
     _assert_error(
         "REVISION_DUPLICATE_TARGET",
         lambda: parse_revision_specification(
-            f"""REVISION_SPEC_VERSION: 2
-
+            f"""
 REMOVE_EDIT: {old_ref}
 
 REMOVE_EDIT: {old_ref}
@@ -372,24 +351,22 @@ REMOVE_EDIT: {old_ref}
     )
 
 
-def test_v2_invalid_selector_format_fails_closed() -> None:
+def test_invalid_selector_format_fails_closed() -> None:
     _assert_error(
         "REVISION_PARSE_ERROR",
         lambda: parse_revision_specification(
-            f"""REVISION_SPEC_VERSION: 2
-
+            f"""
 REMOVE_EDIT: user-authored-name
 """
         ),
     )
 
 
-def test_v2_add_rejects_authored_identifier() -> None:
+def test_add_rejects_authored_identifier() -> None:
     _assert_error(
         "REVISION_PARSE_ERROR",
         lambda: parse_revision_specification(
-            f"""REVISION_SPEC_VERSION: 2
-
+            f"""
 ADD_EDIT: authored-name
 
 {_EDIT_OPEN}
@@ -406,8 +383,8 @@ new_c()
     )
 
 
-def test_v2_whole_file_block_uses_common_locator() -> None:
-    base = f"""EDIT_SPEC_VERSION: 2
+def test_whole_file_block_uses_common_locator() -> None:
+    base = f"""
 
 FILE: src/keep.py
 
@@ -432,8 +409,7 @@ MODE: DELETE
 
     result = revise_edit_specification(
         base,
-        f"""REVISION_SPEC_VERSION: 2
-
+        f"""
 REMOVE_EDIT: {delete_ref}
 """,
     )

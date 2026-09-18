@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from ep_edit.errors import DeterministicEditError
-from ep_edit.planner import plan_edit_text
+from ep_edit.planner import plan_edit_text as _plan_edit_text
 from ep_edit.preview import build_validated_preview
 from ep_edit.validators import (
     ValidationResult,
@@ -16,6 +16,22 @@ from ep_edit.validators import (
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _write(
@@ -67,7 +83,7 @@ def test_preview_contains_required_plan_and_file_metadata(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: update-value
+LABEL: update-value
 
 <<<<<<< SEARCH
 value = 1
@@ -130,7 +146,7 @@ def test_create_preview_uses_dev_null_before(
     plan = plan_edit_text(
         tmp_path,
         """FILE: new.txt
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 created
@@ -163,7 +179,7 @@ def test_missing_parent_create_preview_is_explicit_and_non_writing(
         tmp_path,
         (
             "FILE: missing/deep/new.txt\n"
-            "EDIT: create-new\n"
+            "LABEL: create-new\n"
             "MODE: CREATE\n"
             + "<" * 7
             + " CONTENT\n"
@@ -199,7 +215,7 @@ def test_delete_preview_is_highlighted_and_uses_dev_null_after(
     plan = plan_edit_text(
         tmp_path,
         """FILE: obsolete.py
-EDIT: delete-obsolete
+LABEL: delete-obsolete
 MODE: DELETE
 """,
     )
@@ -236,7 +252,7 @@ def test_multifile_preview_uses_plan_target_order(
     plan = plan_edit_text(
         tmp_path,
         """FILE: z.py
-EDIT: update-z
+LABEL: update-z
 <<<<<<< SEARCH
 z = 1
 =======
@@ -244,7 +260,7 @@ z = 2
 >>>>>>> REPLACE
 
 FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -270,7 +286,7 @@ a = 2
     assert "Edits: 2" in text
 
 
-def test_noop_warning_is_rendered_and_counted_as_authored_edit(
+def test_noop_warning_is_rendered_and_counted_as_edit(
     tmp_path: Path,
 ) -> None:
     _write(
@@ -282,7 +298,7 @@ def test_noop_warning_is_rendered_and_counted_as_authored_edit(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: noop
+LABEL: noop
 <<<<<<< SEARCH
 same = 1
 =======
@@ -290,7 +306,7 @@ same = 1
 >>>>>>> REPLACE
 
 FILE: example.py
-EDIT: change
+LABEL: change
 <<<<<<< SEARCH
 old = 1
 =======
@@ -305,9 +321,12 @@ old = 2
 
     assert "Edits: 2" in text
     assert "=== WARNINGS ===" in text
+    warning_ref = (
+        plan.warnings[0].edit_id
+    )
     assert (
         "example.py [NO_CHANGE_EDIT] "
-        "EDIT noop:"
+        f"EDIT {warning_ref}:"
         in text
     )
 
@@ -324,7 +343,7 @@ def test_crlf_target_metadata_is_preserved_while_diff_uses_lf(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 old
 =======
@@ -358,7 +377,7 @@ def test_final_newline_change_uses_standard_no_newline_marker(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: remove-final-newline
+LABEL: remove-final-newline
 MODE: REPLACE_FILE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -394,7 +413,7 @@ def test_bom_is_rendered_when_preserved(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 old
 =======
@@ -426,7 +445,7 @@ def test_bom_transition_is_rendered(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: remove-bom
+LABEL: remove-bom
 MODE: REPLACE_FILE
 BOM: NO
 <<<<<<< CONTENT
@@ -457,7 +476,7 @@ def test_representation_only_newline_change_is_explicit(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: normalize-newline
+LABEL: normalize-newline
 MODE: REPLACE_FILE
 NEWLINE: LF
 <<<<<<< CONTENT
@@ -496,7 +515,7 @@ def test_unknown_extension_validation_skip_is_visible(
     plan = plan_edit_text(
         tmp_path,
         """FILE: README.md
-EDIT: update-readme
+LABEL: update-readme
 <<<<<<< SEARCH
 old
 =======
@@ -528,7 +547,7 @@ def test_invalid_candidate_fails_before_preview_is_built(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: break-python
+LABEL: break-python
 <<<<<<< SEARCH
 value = 1
 =======
@@ -556,7 +575,7 @@ def test_preview_generation_does_not_modify_target(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 value = 1
 =======
@@ -586,7 +605,7 @@ def test_preview_sha_is_deterministic(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 value = 1
 =======
@@ -619,7 +638,7 @@ def test_empty_create_reports_existence_only_diff(
     plan = plan_edit_text(
         tmp_path,
         """FILE: empty.txt
-EDIT: create-empty
+LABEL: create-empty
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -653,7 +672,7 @@ def test_additional_validator_result_is_rendered(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.yaml
-EDIT: update-yaml
+LABEL: update-yaml
 <<<<<<< SEARCH
 value: 1
 =======
@@ -703,7 +722,7 @@ def test_changed_line_count_handles_multiline_replace(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: replace-middle
+LABEL: replace-middle
 <<<<<<< SEARCH
 b
 =======
@@ -733,7 +752,7 @@ def test_input_fingerprint_short_form_is_rendered(
     )
 
     specification = """FILE: example.py
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 value = 1
 =======
@@ -751,7 +770,9 @@ value = 2
     ).text
 
     expected = hashlib.sha256(
-        specification.encode(
+        _current_spec(
+            specification
+        ).encode(
             "utf-8"
         )
     ).hexdigest()[:12]

@@ -424,8 +424,8 @@ def test_planner_candidate_integrates_with_validation(
 
     plan = plan_edit_text(
         tmp_path,
-        """FILE: example.py
-EDIT: update-value
+        """
+FILE: example.py
 
 <<<<<<< SEARCH
 value = 1
@@ -457,8 +457,8 @@ def test_invalid_planner_candidate_rejected_before_write(
 
     plan = plan_edit_text(
         tmp_path,
-        """FILE: example.py
-EDIT: break-python
+        """
+FILE: example.py
 
 <<<<<<< SEARCH
 value = 1

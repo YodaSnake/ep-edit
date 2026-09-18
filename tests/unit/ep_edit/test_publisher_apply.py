@@ -8,11 +8,27 @@ import pytest
 
 import ep_edit.publisher as publisher_module
 from ep_edit.errors import DeterministicEditError
-from ep_edit.planner import plan_edit_text
+from ep_edit.planner import plan_edit_text as _plan_edit_text
 from ep_edit.publisher import publish_edit_plan
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _write(
@@ -62,7 +78,7 @@ def test_replace_publishes_exact_bytes_and_preserves_mode(
     plan = plan_edit_text(
         tmp_path,
         """FILE: script.py
-EDIT: update-value
+LABEL: update-value
 <<<<<<< SEARCH
 value = 1
 =======
@@ -99,7 +115,7 @@ def test_create_publishes_exact_candidate(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 FINAL_NEWLINE: NO
 <<<<<<< CONTENT
@@ -145,7 +161,6 @@ def test_url_uri_partial_replace_publishes_exact_bytes(
     plan = plan_edit_text(
         tmp_path,
         (
-            "EDIT_SPEC_VERSION: 2\n\n"
             "FILE: links.txt\n"
             "LABEL: replace URL literal\n\n"
             f"{search_open}\n"
@@ -193,7 +208,6 @@ def test_url_uri_whole_file_content_publishes_exact_bytes(
     plan = plan_edit_text(
         tmp_path,
         (
-            "EDIT_SPEC_VERSION: 2\n\n"
             "FILE: generated/links.txt\n"
             "LABEL: create URL URI literal file\n"
             "MODE: CREATE\n\n"
@@ -230,7 +244,7 @@ def test_create_final_target_is_regular_single_link(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/new.txt
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 created
@@ -265,7 +279,7 @@ def test_delete_removes_exact_target(
     plan = plan_edit_text(
         tmp_path,
         """FILE: obsolete.txt
-EDIT: remove-obsolete
+LABEL: remove-obsolete
 MODE: DELETE
 """,
     )
@@ -303,7 +317,7 @@ def test_mixed_multifile_publication_reaches_exact_after_state(
     plan = plan_edit_text(
         tmp_path,
         """FILE: src/a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -311,14 +325,14 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: src/new.py
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 created = True
 >>>>>>> CONTENT
 
 FILE: src/obsolete.txt
-EDIT: remove-old
+LABEL: remove-old
 MODE: DELETE
 """,
     )
@@ -363,7 +377,7 @@ def test_representation_only_change_is_published_exactly(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: normalize-newline
+LABEL: normalize-newline
 MODE: REPLACE_FILE
 NEWLINE: LF
 <<<<<<< CONTENT
@@ -394,7 +408,7 @@ def test_bom_and_final_newline_candidate_is_published_byte_exact(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.txt
-EDIT: replace-file
+LABEL: replace-file
 MODE: REPLACE_FILE
 BOM: YES
 FINAL_NEWLINE: NO
@@ -424,7 +438,7 @@ def test_stale_file_backed_specification_prevents_publication(
         b"value = 1\n",
     )
     specification = """FILE: example.py
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 value = 1
 =======
@@ -436,7 +450,9 @@ value = 2
         / "edits.txt"
     )
     spec_path.write_bytes(
-        specification.encode(
+        _current_spec(
+            specification
+        ).encode(
             "utf-8"
         )
     )
@@ -447,9 +463,11 @@ value = 2
     )
 
     spec_path.write_bytes(
-        specification.replace(
-            "value = 2",
-            "value = 3",
+        _current_spec(
+            specification.replace(
+                "value = 2",
+                "value = 3",
+            )
         ).encode(
             "utf-8"
         )
@@ -487,7 +505,7 @@ def test_each_target_is_revalidated_globally_and_before_publish(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -495,7 +513,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======
@@ -558,7 +576,7 @@ def test_all_candidates_stage_before_first_publish(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -566,7 +584,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======
@@ -649,7 +667,7 @@ def test_success_leaves_no_cli_owned_ephemeral_files(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -657,14 +675,14 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: new.txt
-EDIT: create-new
+LABEL: create-new
 MODE: CREATE
 <<<<<<< CONTENT
 new
 >>>>>>> CONTENT
 
 FILE: obsolete.txt
-EDIT: remove-old
+LABEL: remove-old
 MODE: DELETE
 """,
     )
@@ -700,7 +718,7 @@ def test_publication_does_not_require_git_repository(
     plan = plan_edit_text(
         tmp_path,
         """FILE: plain.txt
-EDIT: update
+LABEL: update
 <<<<<<< SEARCH
 old
 =======

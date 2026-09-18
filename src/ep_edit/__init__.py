@@ -7,7 +7,6 @@ from ep_edit.snapshot import (
     load_text_snapshot,
 )
 from ep_edit.specification import (
-    EDIT_SPEC_VERSION,
     EditSpecification,
     SearchReplaceEdit,
     normalize_target_path,
@@ -15,7 +14,6 @@ from ep_edit.specification import (
 )
 
 __all__ = [
-    "EDIT_SPEC_VERSION",
     "DeterministicEditError",
     "EditSpecification",
     "NewlineStyle",

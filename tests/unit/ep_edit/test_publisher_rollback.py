@@ -7,11 +7,27 @@ import pytest
 
 import ep_edit.publisher as publisher_module
 from ep_edit.errors import DeterministicEditError
-from ep_edit.planner import plan_edit_text
+from ep_edit.planner import plan_edit_text as _plan_edit_text
 from ep_edit.publisher import publish_edit_plan
 
 
 pytestmark = pytest.mark.unit
+
+
+def _current_spec(
+    text: str,
+) -> str:
+    return text
+
+
+def plan_edit_text(
+    root: Path,
+    text: str,
+):
+    return _plan_edit_text(
+        root,
+        _current_spec(text),
+    )
 
 
 def _write(
@@ -113,7 +129,7 @@ def test_staging_failure_before_publish_leaves_all_targets_original(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -121,7 +137,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======
@@ -200,7 +216,7 @@ def test_second_publish_failure_rolls_back_first_replace_and_mode(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -208,7 +224,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======
@@ -260,14 +276,14 @@ def test_second_publish_failure_rolls_back_prior_create(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a-created.txt
-EDIT: create-a
+LABEL: create-a
 MODE: CREATE
 <<<<<<< CONTENT
 created
 >>>>>>> CONTENT
 
 FILE: z.py
-EDIT: update-z
+LABEL: update-z
 <<<<<<< SEARCH
 z = 1
 =======
@@ -319,11 +335,11 @@ def test_second_publish_failure_rolls_back_prior_delete(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a-obsolete.txt
-EDIT: delete-a
+LABEL: delete-a
 MODE: DELETE
 
 FILE: z.py
-EDIT: update-z
+LABEL: update-z
 <<<<<<< SEARCH
 z = 1
 =======
@@ -369,7 +385,7 @@ def test_replace_failure_after_backup_rename_restores_original(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: update-value
+LABEL: update-value
 <<<<<<< SEARCH
 value = 1
 =======
@@ -453,7 +469,7 @@ def test_second_post_apply_verify_failure_rolls_back_both_published_targets(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -461,7 +477,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: b.py
-EDIT: update-b
+LABEL: update-b
 <<<<<<< SEARCH
 b = 1
 =======
@@ -538,7 +554,7 @@ def test_rollback_restore_failure_is_reported_explicitly(
     plan = plan_edit_text(
         tmp_path,
         """FILE: a.py
-EDIT: update-a
+LABEL: update-a
 <<<<<<< SEARCH
 a = 1
 =======
@@ -546,7 +562,7 @@ a = 2
 >>>>>>> REPLACE
 
 FILE: z.py
-EDIT: update-z
+LABEL: update-z
 <<<<<<< SEARCH
 z = 1
 =======
@@ -645,7 +661,7 @@ def test_successful_publication_with_backup_cleanup_failure_is_explicit(
     plan = plan_edit_text(
         tmp_path,
         """FILE: example.py
-EDIT: update-value
+LABEL: update-value
 <<<<<<< SEARCH
 value = 1
 =======

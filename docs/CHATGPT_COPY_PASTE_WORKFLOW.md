@@ -107,9 +107,10 @@ Do not include:
 - another assistant response;
 - an older failed Specification.
 
-For new authoring, the payload should normally begin with:
+For new authoring, the payload should normally begin directly with a
+`FILE:` block:
 
-`EDIT_SPEC_VERSION: 2`
+`FILE: relative/path/to/file.txt`
 
 ## Save once, reuse one Specification
 
@@ -347,7 +348,8 @@ Example with three payload chunks:
       printf '\n--- tail ---\n'
       tail -n 5 "$SPEC"
 
-      grep -n -m 1 '^EDIT_SPEC_VERSION: 2$' "$SPEC" || rc=$?
+      awk 'NF { found=1; exit($0 !~ /^FILE: /) } END { if (!found) exit 1 }' \
+        "$SPEC" || rc=$?
     fi
 
     if (( rc == 0 )); then

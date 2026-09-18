@@ -31,7 +31,6 @@ def _spec(
     replace: str,
 ) -> str:
     return (
-        "EDIT_SPEC_VERSION: 2\n\n"
         f"FILE: {target}\n"
         f"LABEL: {label}\n\n"
         f"{_SEARCH_OPEN}\n"
@@ -233,7 +232,7 @@ def test_cli_emits_deterministic_repair_json(
 
     specification_path.write_text(
         (
-            "EDIT_SPEC_VERSION: 2\n\n"
+
             "FILE: example.py\n"
             "LABEL: zero problem\n\n"
             f"{_SEARCH_OPEN}\n"

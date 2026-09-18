@@ -85,59 +85,8 @@ def test_structural_escape_leaves_ordinary_backslashes_unchanged() -> None:
     )
 
 
-def test_v1_search_replace_decodes_reserved_lines() -> None:
+def test_search_replace_ref_uses_decoded_semantics() -> None:
     specification = (
-        "EDIT_SPEC_VERSION: 1\n\n"
-        "FILE: example.txt\n\n"
-        "EDIT: escape-v1\n\n"
-        f"{_SEARCH_OPEN}\n"
-        f"\\{_SEPARATOR}\n"
-        f"\\\\{_REPLACE_CLOSE}\n"
-        f"{_SEPARATOR}\n"
-        f"\\{_REPLACE_CLOSE}\n"
-        f"{_REPLACE_CLOSE}\n"
-    )
-
-    parsed = parse_edit_specification(
-        specification
-    )
-    edit = parsed.edits[0]
-
-    assert edit.search_lines == (
-        _SEPARATOR,
-        "\\" + _REPLACE_CLOSE,
-    )
-    assert edit.replace_lines == (
-        _REPLACE_CLOSE,
-    )
-
-
-def test_v1_content_decodes_reserved_lines() -> None:
-    specification = (
-        "EDIT_SPEC_VERSION: 1\n\n"
-        "FILE: example.txt\n\n"
-        "EDIT: content-v1\n\n"
-        "MODE: CREATE\n\n"
-        f"{_CONTENT_OPEN}\n"
-        f"\\{_CONTENT_CLOSE}\n"
-        f"\\\\{_CONTENT_CLOSE}\n"
-        f"{_CONTENT_CLOSE}\n"
-    )
-
-    parsed = parse_edit_specification(
-        specification
-    )
-    edit = parsed.edits[0]
-
-    assert edit.content_lines == (
-        _CONTENT_CLOSE,
-        "\\" + _CONTENT_CLOSE,
-    )
-
-
-def test_v2_search_replace_ref_uses_decoded_semantics() -> None:
-    specification = (
-        "EDIT_SPEC_VERSION: 2\n\n"
         "FILE: example.txt\n"
         "LABEL: escaped v2 search\n\n"
         f"{_SEARCH_OPEN}\n"
@@ -176,9 +125,8 @@ def test_v2_search_replace_ref_uses_decoded_semantics() -> None:
     )
 
 
-def test_v2_content_ref_uses_decoded_semantics() -> None:
+def test_content_ref_uses_decoded_semantics() -> None:
     specification = (
-        "EDIT_SPEC_VERSION: 2\n\n"
         "FILE: example.txt\n"
         "LABEL: escaped v2 content\n"
         "MODE: CREATE\n\n"
@@ -210,47 +158,8 @@ def test_v2_content_ref_uses_decoded_semantics() -> None:
     )
 
 
-def test_revision_v1_outer_escape_and_base_locator_round_trip() -> None:
+def test_revision_nested_escape_uses_semantic_ref() -> None:
     base = (
-        "EDIT_SPEC_VERSION: 1\n\n"
-        "FILE: example.txt\n\n"
-        "EDIT: revise-v1\n\n"
-        f"{_SEARCH_OPEN}\n"
-        "old()\n"
-        f"{_SEPARATOR}\n"
-        f"\\{_REPLACE_CLOSE}\n"
-        f"{_REPLACE_CLOSE}\n"
-    )
-
-    result = revise_edit_specification(
-        base,
-        (
-            "REVISION_SPEC_VERSION: 1\n\n"
-            "REVISE_EDIT: revise-v1\n\n"
-            f"{_EDIT_OPEN}\n"
-            "FILE: example.txt\n\n"
-            "EDIT: revise-v1\n\n"
-            f"{_SEARCH_OPEN}\n"
-            "old()\n"
-            f"{_SEPARATOR}\n"
-            f"\\{_EDIT_CLOSE}\n"
-            f"{_REPLACE_CLOSE}\n"
-            f"{_EDIT_CLOSE}\n"
-        ),
-    )
-
-    revised = parse_edit_specification(
-        result.revised_text
-    )
-
-    assert revised.edits[0].replace_lines == (
-        _EDIT_CLOSE,
-    )
-
-
-def test_revision_v2_nested_escape_uses_semantic_ref() -> None:
-    base = (
-        "EDIT_SPEC_VERSION: 2\n\n"
         "FILE: example.txt\n"
         "LABEL: base escaped marker\n\n"
         f"{_SEARCH_OPEN}\n"
@@ -270,7 +179,6 @@ def test_revision_v2_nested_escape_uses_semantic_ref() -> None:
     result = revise_edit_specification(
         base,
         (
-            "REVISION_SPEC_VERSION: 2\n\n"
             f"REVISE_EDIT: {old_ref}\n\n"
             f"{_EDIT_OPEN}\n"
             "FILE: example.txt\n"
