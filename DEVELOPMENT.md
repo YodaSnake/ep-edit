@@ -155,10 +155,13 @@ It covers areas including:
 - secure directory and staging behavior;
 - structural escaping.
 
-From the standalone repository root, with the supported Python version and
-pytest installed, run:
+From the standalone repository root, with the supported Python version, the
+package, and pytest installed in the active environment, run:
 
-    PYTHONPATH=src python -m pytest -q
+    python -m pytest -q
+
+This intentionally exercises the installed package rather than overriding
+imports with `PYTHONPATH=src`.
 
 ## Standalone console-delivery test
 
