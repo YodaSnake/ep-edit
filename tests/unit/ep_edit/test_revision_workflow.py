@@ -31,7 +31,7 @@ new_a()
 BASE_REF = (
     parse_edit_specification(
         BASE_SPEC
-    ).edits[0].edit_id
+    ).edits[0].edit_ref
 )
 
 
@@ -89,7 +89,7 @@ better_a()
             draft.read_text(
                 encoding="utf-8"
             )
-        ).edits[0].edit_id
+        ).edits[0].edit_ref
     )
 
     second_revision = f"""
@@ -113,11 +113,11 @@ best_a()
     )
 
     assert (
-        first_result.revised_edit_ids
+        first_result.revised_edit_refs
         == (BASE_REF,)
     )
     assert (
-        second_result.revised_edit_ids
+        second_result.revised_edit_refs
         == (first_ref,)
     )
 

@@ -15,19 +15,13 @@ from ep_edit.publisher import (
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    text: str,
-) -> str:
-    return text
-
-
 def plan_edit_text(
     root: Path,
     text: str,
 ):
     return _plan_edit_text(
         root,
-        _current_spec(text),
+        text,
     )
 
 
@@ -64,8 +58,7 @@ def _assert_error(
 
 
 def _replace_spec() -> str:
-    return _current_spec(
-        """FILE: example.py
+    return """FILE: example.py
 LABEL: update-value
 <<<<<<< SEARCH
 value = 1
@@ -73,7 +66,6 @@ value = 1
 value = 2
 >>>>>>> REPLACE
 """
-    )
 
 
 def test_immutable_input_skips_specification_revalidation(

@@ -18,19 +18,13 @@ from ep_edit.validators import (
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    text: str,
-) -> str:
-    return text
-
-
 def plan_edit_text(
     root: Path,
     text: str,
 ):
     return _plan_edit_text(
         root,
-        _current_spec(text),
+        text,
     )
 
 
@@ -322,7 +316,7 @@ old = 2
     assert "Edits: 2" in text
     assert "=== WARNINGS ===" in text
     warning_ref = (
-        plan.warnings[0].edit_id
+        plan.warnings[0].edit_ref
     )
     assert (
         "example.py [NO_CHANGE_EDIT] "
@@ -770,9 +764,7 @@ value = 2
     ).text
 
     expected = hashlib.sha256(
-        _current_spec(
-            specification
-        ).encode(
+        specification.encode(
             "utf-8"
         )
     ).hexdigest()[:12]

@@ -46,8 +46,7 @@ The optional `--clipboard` input provider uses macOS `pbpaste`.
 
 `ep-edit` currently supports Python 3.12.
 
-Once this repository is public, install directly from GitHub with standard
-Python packaging tools.
+Install directly from GitHub with standard Python packaging tools.
 
 Using `pip`:
 

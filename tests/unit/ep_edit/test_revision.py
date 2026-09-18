@@ -59,7 +59,7 @@ def _base_refs() -> tuple[
     )
 
     return tuple(
-        edit.edit_id
+        edit.edit_ref
         for edit in parsed.edits
     )
 
@@ -85,7 +85,7 @@ new()
 MISSING_REF = (
     parse_edit_specification(
         MISSING_SPEC
-    ).edits[0].edit_id
+    ).edits[0].edit_ref
 )
 
 
@@ -148,7 +148,7 @@ new_c()
         RevisionOperationKind.ADD,
     ]
     assert (
-        revision.operations[0].edit_id
+        revision.operations[0].edit_ref
         == REVISE_REF
     )
     assert (
@@ -157,7 +157,7 @@ new_c()
     )
     assert (
         revision.operations[2]
-        .edit_id
+        .edit_ref
         .startswith("e_")
     )
 
@@ -196,11 +196,11 @@ better_b()
     assert keep_block in result.revised_text
     assert "better_b()" in result.revised_text
     assert (
-        result.revised_edit_ids
+        result.revised_edit_refs
         == (REVISE_REF,)
     )
-    assert result.removed_edit_ids == ()
-    assert result.added_edit_ids == ()
+    assert result.removed_edit_refs == ()
+    assert result.added_edit_refs == ()
 
 
 def test_remove_edit_removes_whole_edit_block() -> None:
@@ -223,7 +223,7 @@ REMOVE_EDIT: {REMOVE_REF}
         "src/b.py",
     ]
     assert (
-        result.removed_edit_ids
+        result.removed_edit_refs
         == (REMOVE_REF,)
     )
     assert (
@@ -265,11 +265,11 @@ new()
         "tests/test_b.py",
     ]
     assert len(
-        result.added_edit_ids
+        result.added_edit_refs
     ) == 1
     assert (
-        result.added_edit_ids[0]
-        == parsed.edits[-1].edit_id
+        result.added_edit_refs[0]
+        == parsed.edits[-1].edit_ref
     )
 
 
@@ -348,7 +348,7 @@ new()
     only_ref = (
         parse_edit_specification(
             base
-        ).edits[0].edit_id
+        ).edits[0].edit_ref
     )
 
     _assert_error(

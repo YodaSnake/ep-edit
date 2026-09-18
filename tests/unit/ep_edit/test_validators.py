@@ -46,7 +46,7 @@ def _mutation(
         after_bytes=after,
         newline_style=None,
         final_newline=False,
-        edit_ids=("edit",),
+        edit_refs=("edit",),
         changed_ranges=(),
     )
 

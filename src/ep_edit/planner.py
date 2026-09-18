@@ -38,7 +38,7 @@ class FileMutationOperation(str, Enum):
 
 @dataclass(frozen=True)
 class ChangedRange:
-    edit_id: str
+    edit_ref: str
     start_line_index: int
     end_line_index: int
     replacement_line_count: int
@@ -47,7 +47,7 @@ class ChangedRange:
 @dataclass(frozen=True)
 class PlanWarning:
     code: str
-    edit_id: str
+    edit_ref: str
     target: str
     message: str
 
@@ -71,7 +71,7 @@ class FileMutation:
     after_bytes: bytes | None
     newline_style: NewlineStyle | None
     final_newline: bool
-    edit_ids: tuple[str, ...]
+    edit_refs: tuple[str, ...]
     changed_ranges: tuple[ChangedRange, ...]
     create_parent_directories: tuple[str, ...] = ()
     create_existing_parent_identities: tuple[
@@ -103,7 +103,7 @@ def _diagnostic_for_edit(
 ) -> EditDiagnostic:
     return EditDiagnostic(
         code=error.code,
-        edit_id=edit.edit_id,
+        edit_ref=edit.edit_ref,
         target=edit.target,
         message=error.message,
         label=edit.label,
@@ -265,7 +265,7 @@ def plan_edit_specification(
                 warnings,
                 key=lambda warning: (
                     warning.target,
-                    warning.edit_id,
+                    warning.edit_ref,
                     warning.code,
                 ),
             )
@@ -306,7 +306,7 @@ def _plan_whole_file_edit(
                 after_bytes=after_bytes,
                 newline_style=newline_style,
                 final_newline=final_newline,
-                edit_ids=(edit.edit_id,),
+                edit_refs=(edit.edit_ref,),
                 changed_ranges=(),
                 create_parent_directories=(
                     create_parent_directories
@@ -336,7 +336,7 @@ def _plan_whole_file_edit(
                 after_bytes=None,
                 newline_style=snapshot.newline_style,
                 final_newline=snapshot.has_final_newline,
-                edit_ids=(edit.edit_id,),
+                edit_refs=(edit.edit_ref,),
                 changed_ranges=(),
             ),
             [],
@@ -355,7 +355,7 @@ def _plan_whole_file_edit(
             [
                 PlanWarning(
                     code="NO_CHANGE_EDIT",
-                    edit_id=edit.edit_id,
+                    edit_ref=edit.edit_ref,
                     target=edit.target,
                     message=(
                         "REPLACE_FILE candidate is byte-identical; "
@@ -379,7 +379,7 @@ def _plan_whole_file_edit(
             after_bytes=after_bytes,
             newline_style=newline_style,
             final_newline=final_newline,
-            edit_ids=(edit.edit_id,),
+            edit_refs=(edit.edit_ref,),
             changed_ranges=(),
         ),
         [],
@@ -533,7 +533,7 @@ def _materialize_whole_file_bytes(
         raise DeterministicEditError(
             "UNSUPPORTED_NEWLINE",
             (
-                f"EDIT {edit.edit_id!r} requests PRESERVE newline "
+                f"EDIT {edit.edit_ref!r} requests PRESERVE newline "
                 "semantics from a file with no established newline "
                 "style, but the candidate requires a line separator"
             ),
@@ -706,7 +706,7 @@ def _plan_target(
             warnings.append(
                 PlanWarning(
                     code="NO_CHANGE_EDIT",
-                    edit_id=resolved.edit.edit_id,
+                    edit_ref=resolved.edit.edit_ref,
                     target=resolved.edit.target,
                     message=(
                         "SEARCH and REPLACE are identical; "
@@ -746,7 +746,7 @@ def _plan_target(
 
     ordered_ranges = tuple(
         ChangedRange(
-            edit_id=resolved.edit.edit_id,
+            edit_ref=resolved.edit.edit_ref,
             start_line_index=resolved.start_line_index,
             end_line_index=resolved.end_line_index,
             replacement_line_count=len(
@@ -758,7 +758,7 @@ def _plan_target(
             key=lambda item: (
                 item.start_line_index,
                 item.end_line_index,
-                item.edit.edit_id,
+                item.edit.edit_ref,
             ),
         )
     )
@@ -775,8 +775,8 @@ def _plan_target(
             after_bytes=after_bytes,
             newline_style=snapshot.newline_style,
             final_newline=snapshot.has_final_newline,
-            edit_ids=tuple(
-                changed_range.edit_id
+            edit_refs=tuple(
+                changed_range.edit_ref
                 for changed_range in ordered_ranges
             ),
             changed_ranges=ordered_ranges,
@@ -798,7 +798,7 @@ def _resolve_edit(
         raise DeterministicEditError(
             "SEARCH_ZERO_MATCH",
             (
-                f"EDIT {edit.edit_id!r} has no exact "
+                f"EDIT {edit.edit_ref!r} has no exact "
                 f"logical-line match in {edit.target!r}"
             ),
             repair_metadata=(
@@ -813,7 +813,7 @@ def _resolve_edit(
         raise DeterministicEditError(
             "SEARCH_MULTIPLE_MATCH",
             (
-                f"EDIT {edit.edit_id!r} has "
+                f"EDIT {edit.edit_ref!r} has "
                 f"{len(matches)} exact logical-line matches "
                 f"in {edit.target!r}"
             ),
@@ -1103,7 +1103,7 @@ def _require_non_overlapping(
         key=lambda item: (
             item.start_line_index,
             item.end_line_index,
-            item.edit.edit_id,
+            item.edit.edit_ref,
         ),
     )
 
@@ -1119,8 +1119,8 @@ def _require_non_overlapping(
             raise DeterministicEditError(
                 "EDIT_OVERLAP",
                 (
-                    f"EDIT {previous.edit.edit_id!r} and "
-                    f"{current.edit.edit_id!r} overlap in "
+                    f"EDIT {previous.edit.edit_ref!r} and "
+                    f"{current.edit.edit_ref!r} overlap in "
                     f"{current.edit.target!r}"
                 ),
             )

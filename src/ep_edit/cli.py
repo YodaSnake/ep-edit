@@ -206,7 +206,7 @@ def _write_edit_preflight_failure(
         print(
             (
                 f"{position}. "
-                f"{diagnostic.edit_id} "
+                f"{diagnostic.edit_ref} "
                 f"[{diagnostic.code}] "
                 f"{diagnostic.target}"
             ),
@@ -247,7 +247,7 @@ def _write_edit_preflight_failure(
         "errors": [
             {
                 "code": diagnostic.code,
-                "edit_id": diagnostic.edit_id,
+                "edit_ref": diagnostic.edit_ref,
                 "label": diagnostic.label,
                 "message": diagnostic.message,
                 "repair": (
@@ -781,7 +781,7 @@ def _run_revise(
     print(
         (
             "Revised edits: "
-            f"{_format_ids(result.revised_edit_ids)}"
+            f"{_format_refs(result.revised_edit_refs)}"
         ),
         file=output,
     )
@@ -801,14 +801,14 @@ def _run_revise(
     print(
         (
             "Removed edits: "
-            f"{_format_ids(result.removed_edit_ids)}"
+            f"{_format_refs(result.removed_edit_refs)}"
         ),
         file=output,
     )
     print(
         (
             "Added edits: "
-            f"{_format_ids(result.added_edit_ids)}"
+            f"{_format_refs(result.added_edit_refs)}"
         ),
         file=output,
     )
@@ -851,7 +851,7 @@ def _decode_utf8_revision(
         ) from exc
 
 
-def _format_ids(
+def _format_refs(
     values: tuple[str, ...],
 ) -> str:
     if not values:
@@ -881,20 +881,20 @@ def _write_preview(
 def _authored_edit_count(
     plan,
 ) -> int:
-    edit_ids: set[str] = set()
+    edit_refs: set[str] = set()
 
     for mutation in plan.files:
-        edit_ids.update(
-            mutation.edit_ids
+        edit_refs.update(
+            mutation.edit_refs
         )
 
     for warning in plan.warnings:
-        edit_ids.add(
-            warning.edit_id
+        edit_refs.add(
+            warning.edit_ref
         )
 
     return len(
-        edit_ids
+        edit_refs
     )
 
 

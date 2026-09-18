@@ -110,7 +110,7 @@ def _render_combined_preview(
                 (
                     "Edits: "
                     + ", ".join(
-                        mutation.edit_ids
+                        mutation.edit_refs
                     )
                 ),
                 (
@@ -188,7 +188,7 @@ def _render_combined_preview(
                 (
                     f"{warning.target} "
                     f"[{warning.code}] "
-                    f"EDIT {warning.edit_id}: "
+                    f"EDIT {warning.edit_ref}: "
                     f"{warning.message}"
                 )
             )
@@ -226,20 +226,20 @@ def _render_combined_preview(
 def _edit_count(
     plan: EditPlan,
 ) -> int:
-    edit_ids: set[str] = set()
+    edit_refs: set[str] = set()
 
     for mutation in plan.files:
-        edit_ids.update(
-            mutation.edit_ids
+        edit_refs.update(
+            mutation.edit_refs
         )
 
     for warning in plan.warnings:
-        edit_ids.add(
-            warning.edit_id
+        edit_refs.add(
+            warning.edit_ref
         )
 
     return len(
-        edit_ids
+        edit_refs
     )
 
 

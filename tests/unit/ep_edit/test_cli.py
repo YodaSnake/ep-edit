@@ -674,7 +674,7 @@ def test_revise_updates_draft_only(
             VALID_SPEC
         )
         .edits[0]
-        .edit_id
+        .edit_ref
     )
     revision = (
         tmp_path

@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install package and test dependencies
@@ -22,4 +22,6 @@ jobs:
           python -m pip install "pytest>=9.1,<10"
           python -m pip install .
       - name: Run tests
-        run: PYTHONPATH=src python -m pytest -q
+        run: python -m pytest -q
+      - name: Verify installed CLI
+        run: ep-edit --help

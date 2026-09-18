@@ -47,7 +47,7 @@ class DeterministicEditError(RuntimeError):
 @dataclass(frozen=True)
 class EditDiagnostic:
     code: str
-    edit_id: str
+    edit_ref: str
     target: str
     message: str
     label: str | None = None
@@ -76,7 +76,7 @@ class EditPreflightError(
                 diagnostics,
                 key=lambda diagnostic: (
                     diagnostic.target,
-                    diagnostic.edit_id,
+                    diagnostic.edit_ref,
                     diagnostic.code,
                     diagnostic.message,
                 ),

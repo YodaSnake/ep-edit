@@ -25,17 +25,11 @@ from ep_edit.specification import (
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    text: str,
-) -> str:
-    return text
-
-
 def parse_edit_specification(
     text: str,
 ):
     return _parse_edit_specification(
-        _current_spec(text)
+        text
     )
 
 
@@ -45,7 +39,7 @@ def plan_edit_text(
 ):
     return _plan_edit_text(
         root,
-        _current_spec(text),
+        text,
     )
 
 
@@ -93,8 +87,8 @@ def hello():
     assert isinstance(edit, WholeFileEdit)
     assert edit.mode is WholeFileMode.CREATE
     assert edit.label == "create-new"
-    assert edit.edit_id.startswith("e_")
-    assert len(edit.edit_id) == 18
+    assert edit.edit_ref.startswith("e_")
+    assert len(edit.edit_ref) == 18
     assert edit.content_lines == (
         "def hello():",
         '    return "hello"',
@@ -180,8 +174,8 @@ value = 1
 
     assert isinstance(edit, WholeFileEdit)
     assert edit.label is None
-    assert edit.edit_id.startswith("e_")
-    assert len(edit.edit_id) == 18
+    assert edit.edit_ref.startswith("e_")
+    assert len(edit.edit_ref) == 18
 
 
 def test_unknown_whole_file_mode_fails_closed() -> None:
@@ -343,7 +337,7 @@ beta
     expected_ref = (
         parse_edit_specification(
             text
-        ).edits[0].edit_id
+        ).edits[0].edit_ref
     )
 
     plan = plan_edit_text(
@@ -369,7 +363,7 @@ beta
     )
     assert mutation.newline_style is NewlineStyle.LF
     assert mutation.final_newline is True
-    assert mutation.edit_ids == (
+    assert mutation.edit_refs == (
         expected_ref,
     )
     assert mutation.changed_ranges == ()
@@ -782,7 +776,7 @@ MODE: DELETE
     expected_ref = (
         parse_edit_specification(
             text
-        ).edits[0].edit_id
+        ).edits[0].edit_ref
     )
 
     plan = plan_edit_text(
@@ -803,7 +797,7 @@ MODE: DELETE
     assert mutation.after_exists is False
     assert mutation.after_sha256 is None
     assert mutation.after_bytes is None
-    assert mutation.edit_ids == (
+    assert mutation.edit_refs == (
         expected_ref,
     )
     assert (

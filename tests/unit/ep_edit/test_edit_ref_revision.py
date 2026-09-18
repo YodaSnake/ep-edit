@@ -54,8 +54,8 @@ def _base_refs() -> tuple[str, str]:
     )
 
     return (
-        specification.edits[0].edit_id,
-        specification.edits[1].edit_id,
+        specification.edits[0].edit_ref,
+        specification.edits[1].edit_ref,
     )
 
 
@@ -108,12 +108,12 @@ better_a()
         )
     )
     new_ref = (
-        revised.edits[0].edit_id
+        revised.edits[0].edit_ref
     )
 
     assert new_ref != old_ref
     assert (
-        result.revised_edit_ids
+        result.revised_edit_refs
         == (old_ref,)
     )
     assert (
@@ -150,7 +150,7 @@ def test_revision_preserves_url_uri_literals() -> None:
             base_spec
         )
         .edits[0]
-        .edit_id
+        .edit_ref
     )
 
     result = revise_edit_specification(
@@ -175,7 +175,7 @@ def test_revision_preserves_url_uri_literals() -> None:
     revised = parse_edit_specification(
         result.revised_text
     )
-    new_ref = revised.edits[0].edit_id
+    new_ref = revised.edits[0].edit_ref
 
     assert new_ref != old_ref
     assert (
@@ -254,7 +254,7 @@ REMOVE_EDIT: {remove_ref}
         revised.edits
     ) == 1
     assert (
-        result.removed_edit_ids
+        result.removed_edit_refs
         == (remove_ref,)
     )
 
@@ -287,11 +287,11 @@ new_c()
         revised.edits
     ) == 3
     assert len(
-        result.added_edit_ids
+        result.added_edit_refs
     ) == 1
     assert (
-        result.added_edit_ids[0]
-        == revised.edits[2].edit_id
+        result.added_edit_refs[0]
+        == revised.edits[2].edit_ref
     )
 
 
@@ -331,7 +331,7 @@ new_a()
     )
     assert (
         result.revised_edit_ref_mappings[0][1]
-        == revised.edits[0].edit_id
+        == revised.edits[0].edit_ref
     )
 
 
@@ -404,7 +404,7 @@ MODE: DELETE
         )
     )
     delete_ref = (
-        specification.edits[1].edit_id
+        specification.edits[1].edit_ref
     )
 
     result = revise_edit_specification(

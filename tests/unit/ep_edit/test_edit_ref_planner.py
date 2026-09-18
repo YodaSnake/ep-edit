@@ -60,10 +60,10 @@ new_a()
         is FileMutationOperation.REPLACE
     )
     assert len(
-        mutation.edit_ids
+        mutation.edit_refs
     ) == 1
     assert (
-        mutation.edit_ids[0]
+        mutation.edit_refs[0]
         .startswith(
             "e_"
         )

@@ -88,7 +88,7 @@ def test_structural_escape_leaves_ordinary_backslashes_unchanged() -> None:
 def test_search_replace_ref_uses_decoded_semantics() -> None:
     specification = (
         "FILE: example.txt\n"
-        "LABEL: escaped v2 search\n\n"
+        "LABEL: escaped search\n\n"
         f"{_SEARCH_OPEN}\n"
         f"\\{_SEPARATOR}\n"
         f"\\{_REPLACE_CLOSE}\n"
@@ -110,7 +110,7 @@ def test_search_replace_ref_uses_decoded_semantics() -> None:
         _REPLACE_CLOSE,
     )
 
-    assert edit.edit_id == (
+    assert edit.edit_ref == (
         generate_edit_ref(
             target="example.txt",
             operation="SEARCH_REPLACE",
@@ -128,7 +128,7 @@ def test_search_replace_ref_uses_decoded_semantics() -> None:
 def test_content_ref_uses_decoded_semantics() -> None:
     specification = (
         "FILE: example.txt\n"
-        "LABEL: escaped v2 content\n"
+        "LABEL: escaped content\n"
         "MODE: CREATE\n\n"
         f"{_CONTENT_OPEN}\n"
         f"\\{_CONTENT_CLOSE}\n"
@@ -144,7 +144,7 @@ def test_content_ref_uses_decoded_semantics() -> None:
         _CONTENT_CLOSE,
     )
 
-    assert edit.edit_id == (
+    assert edit.edit_ref == (
         generate_edit_ref(
             target="example.txt",
             operation="CREATE",
@@ -173,7 +173,7 @@ def test_revision_nested_escape_uses_semantic_ref() -> None:
         base
     )
     old_ref = (
-        base_parsed.edits[0].edit_id
+        base_parsed.edits[0].edit_ref
     )
 
     result = revise_edit_specification(
@@ -215,7 +215,7 @@ def test_revision_nested_escape_uses_semantic_ref() -> None:
         ),
     )
 
-    assert revised_edit.edit_id == (
+    assert revised_edit.edit_ref == (
         expected_ref
     )
     assert (

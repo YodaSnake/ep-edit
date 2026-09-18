@@ -66,7 +66,7 @@ def _edit_refs(
     text: str,
 ) -> tuple[str, ...]:
     return tuple(
-        edit.edit_id
+        edit.edit_ref
         for edit in parse_edit_specification(
             text
         ).edits
@@ -250,7 +250,7 @@ new_b()
         b"new_a()\nkeep()\nnew_b()\n"
     )
     assert (
-        plan.files[0].edit_ids
+        plan.files[0].edit_refs
         == _edit_refs(text)
     )
 
@@ -664,7 +664,7 @@ def test_changed_range_uses_original_line_indexes(
     changed = plan.files[0].changed_ranges[0]
 
     assert (
-        changed.edit_id
+        changed.edit_ref
         == _edit_refs(
             _spec(
                 search="old\n",
@@ -712,7 +712,7 @@ new()
     )
 
     assert (
-        plan.files[0].edit_ids
+        plan.files[0].edit_refs
         == (_edit_refs(text)[1],)
     )
     assert [

@@ -17,7 +17,7 @@ from ep_edit.structural_escape import (
 @dataclass(frozen=True)
 class SearchReplaceEdit:
     target: str
-    edit_id: str
+    edit_ref: str
     search_lines: tuple[str, ...]
     replace_lines: tuple[str, ...]
     label: str | None = None
@@ -50,7 +50,7 @@ class BomDirective(str, Enum):
 @dataclass(frozen=True)
 class WholeFileEdit:
     target: str
-    edit_id: str
+    edit_ref: str
     mode: WholeFileMode
     content_lines: tuple[str, ...] | None
     newline: NewlineDirective | None
@@ -251,18 +251,18 @@ def parse_edit_specification(
                 )
             )
 
-        if edit.edit_id in edit_refs:
+        if edit.edit_ref in edit_refs:
             raise DeterministicEditError(
                 "DUPLICATE_EDIT_REF",
                 (
                     "Edit Specification "
                     "contains duplicate "
-                    f"generated EditRef {edit.edit_id!r}"
+                    f"generated EditRef {edit.edit_ref!r}"
                 ),
             )
 
         edit_refs.add(
-            edit.edit_id
+            edit.edit_ref
         )
         edits.append(
             edit
@@ -390,7 +390,7 @@ def _parse_search_replace_edit(
     return (
         SearchReplaceEdit(
             target=target,
-            edit_id=edit_ref,
+            edit_ref=edit_ref,
             search_lines=tuple(
                 search_lines
             ),
@@ -462,7 +462,7 @@ def _parse_whole_file_edit(
         return (
             WholeFileEdit(
                 target=target,
-                edit_id=edit_ref,
+                edit_ref=edit_ref,
                 mode=mode,
                 content_lines=None,
                 newline=None,
@@ -613,13 +613,13 @@ def _parse_whole_file_edit(
         newline=newline,
         final_newline=final_newline,
         bom=bom,
-        edit_id=edit_ref,
+        edit_ref=edit_ref,
     )
 
     return (
         WholeFileEdit(
             target=target,
-            edit_id=edit_ref,
+            edit_ref=edit_ref,
             mode=mode,
             content_lines=tuple(
                 content_lines
@@ -732,7 +732,7 @@ def _validate_whole_file_directives(
     newline: NewlineDirective,
     final_newline: FinalNewlineDirective,
     bom: BomDirective,
-    edit_id: str,
+    edit_ref: str,
 ) -> None:
     if mode is not WholeFileMode.CREATE:
         return
@@ -741,7 +741,7 @@ def _validate_whole_file_directives(
         raise DeterministicEditError(
             "INPUT_PARSE_ERROR",
             (
-                f"CREATE EDIT {edit_id!r} cannot use "
+                f"CREATE EDIT {edit_ref!r} cannot use "
                 "NEWLINE: PRESERVE"
             ),
         )
@@ -750,7 +750,7 @@ def _validate_whole_file_directives(
         raise DeterministicEditError(
             "INPUT_PARSE_ERROR",
             (
-                f"CREATE EDIT {edit_id!r} cannot use "
+                f"CREATE EDIT {edit_ref!r} cannot use "
                 "FINAL_NEWLINE: PRESERVE"
             ),
         )
@@ -759,7 +759,7 @@ def _validate_whole_file_directives(
         raise DeterministicEditError(
             "INPUT_PARSE_ERROR",
             (
-                f"CREATE EDIT {edit_id!r} cannot use "
+                f"CREATE EDIT {edit_ref!r} cannot use "
                 "BOM: PRESERVE"
             ),
         )

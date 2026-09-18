@@ -12,12 +12,6 @@ from ep_edit.specification import (
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    body: str,
-) -> str:
-    return body
-
-
 def _assert_error(
     expected_code: str,
     callable_,
@@ -37,8 +31,7 @@ def _assert_error(
 
 def test_parse_single_search_replace_edit() -> None:
     specification = parse_edit_specification(
-        _current_spec(
-            """FILE: src/a.py
+        """FILE: src/a.py
 LABEL: update-a
 
 <<<<<<< SEARCH
@@ -47,7 +40,6 @@ old_a()
 new_a()
 >>>>>>> REPLACE
 """
-        )
     )
 
     assert len(
@@ -58,7 +50,7 @@ new_a()
 
     assert edit.target == "src/a.py"
     assert edit.label == "update-a"
-    assert edit.edit_id.startswith("e_")
+    assert edit.edit_ref.startswith("e_")
     assert edit.search_lines == (
         "old_a()",
     )
@@ -68,8 +60,7 @@ new_a()
 
 
 def test_crlf_transport_is_accepted() -> None:
-    text = _current_spec(
-        """FILE: src/a.py
+    text = """FILE: src/a.py
 LABEL: update-a
 
 <<<<<<< SEARCH
@@ -77,8 +68,7 @@ old_a()
 =======
 new_a()
 >>>>>>> REPLACE
-"""
-    ).replace(
+""".replace(
         "\n",
         "\r\n",
     )
@@ -97,20 +87,18 @@ new_a()
 
 def test_logical_lines_preserve_comments_blanks_tabs_and_spaces() -> None:
     specification = parse_edit_specification(
-        _current_spec(
-            "FILE: src/a.py\n"
-            "LABEL: preserve-lines\n"
-            "\n"
-            "<<<<<<< SEARCH\n"
-            "# keep this comment\n"
-            "\told_call()  \n"
-            "\n"
-            "=======\n"
-            "# keep this comment\n"
-            "\tnew_call()  \n"
-            "\n"
-            ">>>>>>> REPLACE\n"
-        )
+        "FILE: src/a.py\n"
+        "LABEL: preserve-lines\n"
+        "\n"
+        "<<<<<<< SEARCH\n"
+        "# keep this comment\n"
+        "\told_call()  \n"
+        "\n"
+        "=======\n"
+        "# keep this comment\n"
+        "\tnew_call()  \n"
+        "\n"
+        ">>>>>>> REPLACE\n"
     )
 
     edit = specification.edits[0]
@@ -129,8 +117,7 @@ def test_logical_lines_preserve_comments_blanks_tabs_and_spaces() -> None:
 
 def test_multiple_edits_for_same_file_are_parsed() -> None:
     specification = parse_edit_specification(
-        _current_spec(
-            """FILE: src/a.py
+        """FILE: src/a.py
 LABEL: first
 
 <<<<<<< SEARCH
@@ -148,7 +135,6 @@ old_b()
 new_b()
 >>>>>>> REPLACE
 """
-        )
     )
 
     assert [
@@ -166,15 +152,14 @@ new_b()
         ("old_b()",),
     ]
     assert (
-        specification.edits[0].edit_id
-        != specification.edits[1].edit_id
+        specification.edits[0].edit_ref
+        != specification.edits[1].edit_ref
     )
 
 
 def test_multiple_files_are_parsed() -> None:
     specification = parse_edit_specification(
-        _current_spec(
-            """FILE: src/a.py
+        """FILE: src/a.py
 LABEL: first
 
 <<<<<<< SEARCH
@@ -192,7 +177,6 @@ old_test()
 new_test()
 >>>>>>> REPLACE
 """
-        )
     )
 
     assert [
@@ -208,8 +192,7 @@ def test_empty_search_fails_closed() -> None:
     _assert_error(
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
-            _current_spec(
-                """FILE: src/a.py
+            """FILE: src/a.py
 LABEL: empty-search
 
 <<<<<<< SEARCH
@@ -217,15 +200,13 @@ LABEL: empty-search
 replacement
 >>>>>>> REPLACE
 """
-            )
         ),
     )
 
 
 def test_empty_replace_is_allowed() -> None:
     specification = parse_edit_specification(
-        _current_spec(
-            """FILE: src/a.py
+        """FILE: src/a.py
 LABEL: remove-line
 
 <<<<<<< SEARCH
@@ -233,7 +214,6 @@ obsolete()
 =======
 >>>>>>> REPLACE
 """
-        )
     )
 
     assert (

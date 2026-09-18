@@ -14,19 +14,13 @@ from ep_edit.publisher import publish_edit_plan
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    text: str,
-) -> str:
-    return text
-
-
 def plan_edit_text(
     root: Path,
     text: str,
 ):
     return _plan_edit_text(
         root,
-        _current_spec(text),
+        text,
     )
 
 

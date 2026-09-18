@@ -15,19 +15,13 @@ from ep_edit.publisher import publish_edit_plan
 pytestmark = pytest.mark.unit
 
 
-def _current_spec(
-    text: str,
-) -> str:
-    return text
-
-
 def plan_edit_text(
     root: Path,
     text: str,
 ):
     return _plan_edit_text(
         root,
-        _current_spec(text),
+        text,
     )
 
 
@@ -450,9 +444,7 @@ value = 2
         / "edits.txt"
     )
     spec_path.write_bytes(
-        _current_spec(
-            specification
-        ).encode(
+        specification.encode(
             "utf-8"
         )
     )
@@ -463,11 +455,9 @@ value = 2
     )
 
     spec_path.write_bytes(
-        _current_spec(
-            specification.replace(
-                "value = 2",
-                "value = 3",
-            )
+        specification.replace(
+            "value = 2",
+            "value = 3",
         ).encode(
             "utf-8"
         )

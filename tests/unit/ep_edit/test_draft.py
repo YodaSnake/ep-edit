@@ -32,7 +32,7 @@ new_a()
 BASE_REF = (
     parse_edit_specification(
         BASE_SPEC
-    ).edits[0].edit_id
+    ).edits[0].edit_ref
 )
 
 
@@ -111,7 +111,7 @@ def test_revise_draft_file_replaces_only_draft(
         == "repository target unchanged\n"
     )
     assert (
-        result.revised_edit_ids
+        result.revised_edit_refs
         == (BASE_REF,)
     )
 

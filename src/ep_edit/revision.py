@@ -26,9 +26,9 @@ class RevisionOperationKind(str, Enum):
 @dataclass(frozen=True)
 class RevisionOperation:
     kind: RevisionOperationKind
-    edit_id: str
+    edit_ref: str
     edit_block: str | None
-    replacement_edit_id: str | None = None
+    replacement_edit_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,9 +41,9 @@ class RevisionResult:
     revised_text: str
     base_fingerprint: str
     revised_fingerprint: str
-    revised_edit_ids: tuple[str, ...]
-    removed_edit_ids: tuple[str, ...]
-    added_edit_ids: tuple[str, ...]
+    revised_edit_refs: tuple[str, ...]
+    removed_edit_refs: tuple[str, ...]
+    added_edit_refs: tuple[str, ...]
     revised_edit_ref_mappings: tuple[
         tuple[str, str],
         ...
@@ -52,7 +52,7 @@ class RevisionResult:
 
 @dataclass(frozen=True)
 class _BaseEditBlock:
-    edit_id: str
+    edit_ref: str
     start_offset: int
     end_offset: int
     ends_with_newline: bool
@@ -145,9 +145,9 @@ def parse_revision_specification(
             operations.append(
                 RevisionOperation(
                     kind=kind,
-                    edit_id=added_ref,
+                    edit_ref=added_ref,
                     edit_block=edit_block,
-                    replacement_edit_id=(
+                    replacement_edit_ref=(
                         added_ref
                     ),
                 )
@@ -179,7 +179,7 @@ def parse_revision_specification(
             operations.append(
                 RevisionOperation(
                     kind=kind,
-                    edit_id=selector,
+                    edit_ref=selector,
                     edit_block=None,
                 )
             )
@@ -200,9 +200,9 @@ def parse_revision_specification(
         operations.append(
             RevisionOperation(
                 kind=kind,
-                edit_id=selector,
+                edit_ref=selector,
                 edit_block=edit_block,
-                replacement_edit_id=(
+                replacement_edit_ref=(
                     replacement_ref
                 ),
             )
@@ -323,7 +323,7 @@ def _embedded_edit_ref(
     return (
         specification
         .edits[0]
-        .edit_id
+        .edit_ref
     )
 
 
@@ -380,24 +380,24 @@ def revise_edit_specification(
         )
     )
 
-    ordered_base_ids = tuple(
-        edit.edit_id
+    ordered_base_refs = tuple(
+        edit.edit_ref
         for edit in base_specification.edits
     )
 
     base_blocks = _locate_base_edit_blocks(
         base_text,
-        edit_ids=ordered_base_ids,
+        edit_refs=ordered_base_refs,
     )
 
-    base_ids = set(
-        ordered_base_ids
+    base_refs = set(
+        ordered_base_refs
     )
 
     if {
-        block.edit_id
+        block.edit_ref
         for block in base_blocks
-    } != base_ids:
+    } != base_refs:
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
@@ -407,8 +407,8 @@ def revise_edit_specification(
             ),
         )
 
-    operations_by_id = {
-        operation.edit_id: operation
+    operations_by_ref = {
+        operation.edit_ref: operation
         for operation in revision.operations
     }
 
@@ -419,28 +419,28 @@ def revise_edit_specification(
                 RevisionOperationKind.REVISE,
                 RevisionOperationKind.REMOVE,
             }
-            and operation.edit_id not in base_ids
+            and operation.edit_ref not in base_refs
         ):
             raise DeterministicEditError(
                 "REVISION_EDIT_NOT_FOUND",
                 (
                     "base Edit Specification "
                     "does not contain EditRef "
-                    f"{operation.edit_id!r}"
+                    f"{operation.edit_ref!r}"
                 ),
             )
 
         if (
             operation.kind
             is RevisionOperationKind.ADD
-            and operation.edit_id in base_ids
+            and operation.edit_ref in base_refs
         ):
             raise DeterministicEditError(
                 "REVISION_EDIT_ALREADY_EXISTS",
                 (
                     "base Edit Specification "
                     "already contains EditRef "
-                    f"{operation.edit_id!r}"
+                    f"{operation.edit_ref!r}"
                 ),
             )
 
@@ -457,8 +457,8 @@ def revise_edit_specification(
             ]
         )
 
-        operation = operations_by_id.get(
-            block.edit_id
+        operation = operations_by_ref.get(
+            block.edit_ref
         )
 
         if operation is None:
@@ -513,7 +513,7 @@ def revise_edit_specification(
                 is RevisionOperationKind.ADD
             )
         ),
-        key=lambda operation: operation.edit_id,
+        key=lambda operation: operation.edit_ref,
     )
 
     if additions:
@@ -548,7 +548,7 @@ def revise_edit_specification(
             continue
 
         if (
-            operation.replacement_edit_id
+            operation.replacement_edit_ref
             is None
         ):
             raise DeterministicEditError(
@@ -561,8 +561,8 @@ def revise_edit_specification(
 
         mappings.append(
             (
-                operation.edit_id,
-                operation.replacement_edit_id,
+                operation.edit_ref,
+                operation.replacement_edit_ref,
             )
         )
 
@@ -572,9 +572,9 @@ def revise_edit_specification(
         )
     )
 
-    revised_ids = tuple(
+    revised_refs = tuple(
         sorted(
-            operation.edit_id
+            operation.edit_ref
             for operation in revision.operations
             if (
                 operation.kind
@@ -582,9 +582,9 @@ def revise_edit_specification(
             )
         )
     )
-    removed_ids = tuple(
+    removed_refs = tuple(
         sorted(
-            operation.edit_id
+            operation.edit_ref
             for operation in revision.operations
             if (
                 operation.kind
@@ -592,9 +592,9 @@ def revise_edit_specification(
             )
         )
     )
-    added_ids = tuple(
+    added_refs = tuple(
         sorted(
-            operation.edit_id
+            operation.edit_ref
             for operation in revision.operations
             if (
                 operation.kind
@@ -611,9 +611,9 @@ def revise_edit_specification(
         revised_fingerprint=_text_fingerprint(
             revised_text
         ),
-        revised_edit_ids=revised_ids,
-        removed_edit_ids=removed_ids,
-        added_edit_ids=added_ids,
+        revised_edit_refs=revised_refs,
+        removed_edit_refs=removed_refs,
+        added_edit_refs=added_refs,
         revised_edit_ref_mappings=(
             revised_edit_ref_mappings
         ),
@@ -635,7 +635,7 @@ def _parse_operation_kind(
 def _locate_base_edit_blocks(
     text: str,
     *,
-    edit_ids: tuple[str, ...],
+    edit_refs: tuple[str, ...],
 ) -> tuple[_BaseEditBlock, ...]:
     raw_lines = text.splitlines(
         keepends=True
@@ -692,7 +692,7 @@ def _locate_base_edit_blocks(
         )
 
         if block_position >= len(
-            edit_ids
+            edit_refs
         ):
             raise DeterministicEditError(
                 "REVISION_PARSE_ERROR",
@@ -703,7 +703,7 @@ def _locate_base_edit_blocks(
                 ),
             )
 
-        edit_id = edit_ids[
+        edit_ref = edit_refs[
             block_position
         ]
 
@@ -725,7 +725,7 @@ def _locate_base_edit_blocks(
             raise DeterministicEditError(
                 "REVISION_PARSE_ERROR",
                 (
-                    f"EDIT {edit_id!r} "
+                    f"EDIT {edit_ref!r} "
                     "has no edit body"
                 ),
             )
@@ -738,7 +738,7 @@ def _locate_base_edit_blocks(
                 _locate_search_replace_end(
                     logical_lines,
                     index,
-                    edit_id=edit_id,
+                    edit_ref=edit_ref,
                 )
             )
         elif logical_lines[index].startswith(
@@ -748,14 +748,14 @@ def _locate_base_edit_blocks(
                 _locate_whole_file_end(
                     logical_lines,
                     index,
-                    edit_id=edit_id,
+                    edit_ref=edit_ref,
                 )
             )
         else:
             raise DeterministicEditError(
                 "REVISION_PARSE_ERROR",
                 (
-                    f"EDIT {edit_id!r} "
+                    f"EDIT {edit_ref!r} "
                     "has neither SEARCH nor MODE body"
                 ),
             )
@@ -766,7 +766,7 @@ def _locate_base_edit_blocks(
 
         blocks.append(
             _BaseEditBlock(
-                edit_id=edit_id,
+                edit_ref=edit_ref,
                 start_offset=offsets[
                     start_line
                 ],
@@ -786,7 +786,7 @@ def _locate_base_edit_blocks(
 
     if (
         block_position
-        != len(edit_ids)
+        != len(edit_refs)
     ):
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
@@ -806,7 +806,7 @@ def _locate_search_replace_end(
     logical_lines: list[str],
     opening_index: int,
     *,
-    edit_id: str,
+    edit_ref: str,
 ) -> int:
     index = opening_index + 1
 
@@ -822,7 +822,7 @@ def _locate_search_replace_end(
             raise DeterministicEditError(
                 "REVISION_PARSE_ERROR",
                 (
-                    f"EDIT {edit_id!r} "
+                    f"EDIT {edit_ref!r} "
                     "has no SEARCH separator"
                 ),
             )
@@ -833,7 +833,7 @@ def _locate_search_replace_end(
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
-                f"EDIT {edit_id!r} "
+                f"EDIT {edit_ref!r} "
                 "has no SEARCH separator"
             ),
         )
@@ -851,7 +851,7 @@ def _locate_search_replace_end(
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
-                f"EDIT {edit_id!r} "
+                f"EDIT {edit_ref!r} "
                 "has no REPLACE closing marker"
             ),
         )
@@ -863,7 +863,7 @@ def _locate_whole_file_end(
     logical_lines: list[str],
     mode_index: int,
     *,
-    edit_id: str,
+    edit_ref: str,
 ) -> int:
     mode = (
         logical_lines[mode_index]
@@ -881,7 +881,7 @@ def _locate_whole_file_end(
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
-                f"EDIT {edit_id!r} "
+                f"EDIT {edit_ref!r} "
                 f"has unsupported MODE: {mode}"
             ),
         )
@@ -898,7 +898,7 @@ def _locate_whole_file_end(
             raise DeterministicEditError(
                 "REVISION_PARSE_ERROR",
                 (
-                    f"EDIT {edit_id!r} "
+                    f"EDIT {edit_ref!r} "
                     "has no CONTENT opening marker"
                 ),
             )
@@ -921,7 +921,7 @@ def _locate_whole_file_end(
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
-                f"EDIT {edit_id!r} "
+                f"EDIT {edit_ref!r} "
                 "has invalid whole-file body"
             ),
         )
@@ -939,7 +939,7 @@ def _locate_whole_file_end(
         raise DeterministicEditError(
             "REVISION_PARSE_ERROR",
             (
-                f"EDIT {edit_id!r} "
+                f"EDIT {edit_ref!r} "
                 "has no CONTENT closing marker"
             ),
         )

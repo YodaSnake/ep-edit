@@ -62,14 +62,14 @@ def test_search_edit_generates_deterministic_ref() -> None:
         SearchReplaceEdit,
     )
     assert (
-        first_edit.edit_id
-        == second_edit.edit_id
+        first_edit.edit_ref
+        == second_edit.edit_ref
     )
-    assert first_edit.edit_id.startswith(
+    assert first_edit.edit_ref.startswith(
         "e_"
     )
     assert (
-        len(first_edit.edit_id)
+        len(first_edit.edit_ref)
         == 18
     )
 
@@ -91,8 +91,8 @@ def test_label_is_optional_and_not_part_of_identity() -> None:
 
     assert labeled.label == "update a"
     assert (
-        labeled.edit_id
-        == unlabeled.edit_id
+        labeled.edit_ref
+        == unlabeled.edit_ref
     )
 
 
@@ -109,8 +109,8 @@ def test_content_change_changes_edit_ref() -> None:
     ).edits[0]
 
     assert (
-        original.edit_id
-        != changed.edit_id
+        original.edit_ref
+        != changed.edit_ref
     )
 
 
@@ -127,12 +127,12 @@ def test_target_change_changes_edit_ref() -> None:
     ).edits[0]
 
     assert (
-        original.edit_id
-        != changed.edit_id
+        original.edit_ref
+        != changed.edit_ref
     )
 
 
-def test_rejects_authored_edit_id() -> None:
+def test_rejects_authored_edit_ref() -> None:
     error = _assert_error(
         "INPUT_PARSE_ERROR",
         lambda: parse_edit_specification(
@@ -201,32 +201,10 @@ created
         edit.mode
         is WholeFileMode.CREATE
     )
-    assert edit.edit_id.startswith(
+    assert edit.edit_ref.startswith(
         "e_"
     )
     assert (
         edit.label
         == "create example"
-    )
-
-
-def test_authored_edit_id_is_rejected_without_version_header() -> None:
-    error = _assert_error(
-        "INPUT_PARSE_ERROR",
-        lambda: parse_edit_specification(
-            f"""FILE: src/a.py
-EDIT: legacy-id
-
-{_SEARCH_OPEN}
-old_a()
-{_REPLACE_SEPARATOR}
-new_a()
-{_REPLACE_CLOSE}
-"""
-        ),
-    )
-
-    assert (
-        "EditRef is generated"
-        in error.message
     )
